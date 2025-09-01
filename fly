@@ -1,118 +1,159 @@
+--// Services
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
-local character, humanoidRootPart, humanoid
+local character, humanoid, humanoidRootPart
+
+--// Trạng thái
+local invisible = false
+local noclip = false
 local flying = false
-local bodyVelocity, bodyGyro
-local speed = 50
-
--- Cờ bật/tắt
-local jumpBoost = false
 local speedBoost = false
+local jumpBoost = false
+local flySpeed = 50
 
--- Giá trị mặc định
+--// Body movers cho fly
+local bodyVelocity, bodyGyro
+
+--// WalkSpeed/JumpHeight gốc
 local normalWalkSpeed = 16
 local boostedWalkSpeed = 100
-local normalJumpPower = 50
-local boostedJumpPower = 200
+local normalJumpHeight = 7.2  -- tương đương JumpPower 50
+local boostedJumpHeight = 50  -- nhảy rất cao
 
--- Setup khi spawn nhân vật
+--// Cập nhật character khi spawn
 local function setupCharacter(char)
 	character = char
-	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 	humanoid = character:WaitForChild("Humanoid")
+	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 end
-
 setupCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(setupCharacter)
 
--- Xử lý input
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-
-	-- Toggle bay bằng phím F
-	if input.KeyCode == Enum.KeyCode.F then
-		flying = not flying
-		if flying then
-			-- Bật bay
-			bodyVelocity = Instance.new("BodyVelocity")
-			bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-			bodyVelocity.P = 5000
-			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-			bodyVelocity.Parent = humanoidRootPart
-
-			bodyGyro = Instance.new("BodyGyro")
-			bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
-			bodyGyro.P = 5000
-			bodyGyro.CFrame = humanoidRootPart.CFrame
-			bodyGyro.Parent = humanoidRootPart
-
-			print("Flying ON")
-		else
-			-- Tắt bay
-			if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
-			if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
-			print("Flying OFF")
+--// Invisibility
+local function toggleInvisibility(state)
+	invisible = state
+	for _, obj in pairs(character:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.Transparency = invisible and 1 or 0
+			obj.CanCollide = not invisible
+		elseif obj:IsA("Decal") or obj:IsA("SpecialMesh") then
+			obj.Transparency = invisible and 1 or 0
 		end
 	end
-
-	-- Giảm tốc độ (1)
-	if flying and input.KeyCode == Enum.KeyCode.One then
-		speed = math.max(0, speed - 10)
-		print("Speed:", speed)
+	if humanoid then
+		humanoid.NameDisplayDistance = invisible and 0 or 100
+		humanoid.HealthDisplayDistance = invisible and 0 or 100
 	end
-	-- Tăng tốc độ (2)
-	if flying and input.KeyCode == Enum.KeyCode.Two then
-		speed = speed + 10
-		print("Speed:", speed)
-	end
+end
 
-	-- Toggle chạy nhanh (G)
-	if input.KeyCode == Enum.KeyCode.G and humanoid then
-		speedBoost = not speedBoost
-		if speedBoost then
-			humanoid.WalkSpeed = boostedWalkSpeed
-			print("Super Speed ON")
-		else
-			humanoid.WalkSpeed = normalWalkSpeed
-			print("Super Speed OFF")
-		end
-	end
-
-	-- Toggle nhảy cao (H)
-	if input.KeyCode == Enum.KeyCode.H and humanoid then
-		jumpBoost = not jumpBoost
-		if jumpBoost then
-			humanoid.JumpPower = boostedJumpPower
-			print("High Jump ON")
-		else
-			humanoid.JumpPower = normalJumpPower
-			print("High Jump OFF")
+--// Noclip
+RunService.Stepped:Connect(function()
+	if noclip and character then
+		for _, part in pairs(character:GetDescendants()) do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+				part.CanCollide = false
+			end
 		end
 	end
 end)
 
--- Điều khiển hướng bay
+--// Fly toggle
+local function toggleFly()
+	flying = not flying
+	if flying then
+		bodyVelocity = Instance.new("BodyVelocity")
+		bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+		bodyVelocity.P = 5000
+		bodyVelocity.Parent = humanoidRootPart
+
+		bodyGyro = Instance.new("BodyGyro")
+		bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+		bodyGyro.P = 5000
+		bodyGyro.Parent = humanoidRootPart
+	else
+		if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
+		if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+	end
+end
+
+--// Fly điều khiển
 RunService.Heartbeat:Connect(function()
-	if flying and bodyVelocity and bodyGyro and humanoidRootPart then
+	if flying and bodyVelocity and bodyGyro then
 		local moveVector = Vector3.new(
 			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
 			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
 			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
 		)
-
 		local camCF = workspace.CurrentCamera.CFrame
-		local moveDir = (camCF.RightVector * moveVector.X)
-			+ (camCF.UpVector * moveVector.Y)
-			+ (camCF.LookVector * moveVector.Z)
+		local moveDir = camCF.RightVector * moveVector.X + camCF.UpVector * moveVector.Y + camCF.LookVector * moveVector.Z
 
 		if moveDir.Magnitude > 0 then
-			bodyVelocity.Velocity = moveDir.Unit * speed
+			bodyVelocity.Velocity = moveDir.Unit * flySpeed
 			bodyGyro.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + moveDir)
 		else
-			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+			bodyVelocity.Velocity = Vector3.new(0,0,0)
 		end
+	end
+end)
+
+--// UI
+local ScreenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+ScreenGui.Name = "Hub"
+
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 200, 0, 300)
+Frame.Position = UDim2.new(0, 50, 0.5, -150)
+Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+
+local UIListLayout = Instance.new("UIListLayout", Frame)
+UIListLayout.Padding = UDim.new(0,5)
+
+local function createButton(text, callback)
+	local btn = Instance.new("TextButton", Frame)
+	btn.Size = UDim2.new(1, -10, 0, 30)
+	btn.Position = UDim2.new(0,5,0,0)
+	btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+	btn.TextColor3 = Color3.fromRGB(255,255,255)
+	btn.Text = text
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+-- Buttons
+createButton("Toggle Invisible", function()
+	toggleInvisibility(not invisible)
+end)
+
+createButton("Toggle Noclip", function()
+	noclip = not noclip
+end)
+
+createButton("Toggle Fly", function()
+	toggleFly()
+end)
+
+createButton("Fly Speed +", function()
+	flySpeed = flySpeed + 10
+end)
+
+createButton("Fly Speed -", function()
+	flySpeed = math.max(0, flySpeed - 10)
+end)
+
+createButton("Super Speed", function()
+	speedBoost = not speedBoost
+	if humanoid then
+		humanoid.WalkSpeed = speedBoost and boostedWalkSpeed or normalWalkSpeed
+	end
+end)
+
+createButton("High Jump", function()
+	jumpBoost = not jumpBoost
+	if humanoid then
+		humanoid.UseJumpPower = false -- dùng JumpHeight thay vì JumpPower
+		humanoid.JumpHeight = jumpBoost and boostedJumpHeight or normalJumpHeight
 	end
 end)
