@@ -17,18 +17,18 @@ end
 setupCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(setupCharacter)
 
--- Xử lý bật/tắt bay + chỉnh tốc độ
+-- Toggle + chỉnh tốc độ
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
-	-- Toggle bay bằng phím F
+	-- Toggle bay
 	if input.KeyCode == Enum.KeyCode.F then
 		flying = not flying
 		if flying then
 			bodyVelocity = Instance.new("BodyVelocity")
-			bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-			bodyVelocity.P = 5000
-			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+			bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6) -- mạnh hơn để giữ bay mượt
+			bodyVelocity.P = 1e5
+			bodyVelocity.Velocity = Vector3.zero
 			bodyVelocity.Parent = humanoidRootPart
 			print("Flying ON")
 		else
@@ -40,38 +40,34 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		end
 	end
 
-	-- Giảm tốc độ (1)
-	if flying and input.KeyCode == Enum.KeyCode.One then
-		speed = math.max(0, speed - 10)
-		print("Speed:", speed)
-	end
-	-- Tăng tốc độ (2)
-	if flying and input.KeyCode == Enum.KeyCode.Two then
-		speed = speed + 10
-		print("Speed:", speed)
+	-- Tăng/giảm tốc độ
+	if flying then
+		if input.KeyCode == Enum.KeyCode.One then
+			speed = math.max(10, speed - 10)
+			print("Speed:", speed)
+		elseif input.KeyCode == Enum.KeyCode.Two then
+			speed = speed + 10
+			print("Speed:", speed)
+		end
 	end
 end)
 
--- Điều khiển hướng bay
+-- Điều khiển bay
 RunService.Heartbeat:Connect(function()
 	if flying and bodyVelocity and humanoidRootPart then
-		local moveVector = Vector3.new(
-			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0), -- X (trái/phải)
-			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0), -- Y (lên/xuống)
-			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)  -- Z (tiến/lùi)
-		)
+		-- Lấy hướng input WASD + Space + Shift
+		local forward = (UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
+		local right   = (UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0)
+		local up      = (UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0)
 
-		-- Chuyển local vector sang hướng nhìn camera
+		-- Camera hướng
 		local camCF = workspace.CurrentCamera.CFrame
-		local moveDir = (camCF.RightVector * moveVector.X)
-			+ (camCF.UpVector * moveVector.Y)
-			+ (camCF.LookVector * moveVector.Z)
+		local moveDir = (camCF.LookVector * forward) + (camCF.RightVector * right) + (Vector3.new(0,1,0) * up)
 
-		-- Cập nhật vận tốc
 		if moveDir.Magnitude > 0 then
 			bodyVelocity.Velocity = moveDir.Unit * speed
 		else
-			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+			bodyVelocity.Velocity = Vector3.zero
 		end
 	end
 end)
