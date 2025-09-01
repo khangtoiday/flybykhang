@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local character, humanoidRootPart, humanoid
 local flying = false
-local bodyVelocity
+local bodyVelocity, bodyGyro
 local speed = 50
 
 -- Cờ bật/tắt
@@ -16,7 +16,7 @@ local speedBoost = false
 local normalWalkSpeed = 16
 local boostedWalkSpeed = 100
 local normalJumpPower = 50
-local boostedJumpPower = 100
+local boostedJumpPower = 200
 
 -- Setup khi spawn nhân vật
 local function setupCharacter(char)
@@ -36,17 +36,24 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.KeyCode == Enum.KeyCode.F then
 		flying = not flying
 		if flying then
+			-- Bật bay
 			bodyVelocity = Instance.new("BodyVelocity")
 			bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
 			bodyVelocity.P = 5000
 			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
 			bodyVelocity.Parent = humanoidRootPart
+
+			bodyGyro = Instance.new("BodyGyro")
+			bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+			bodyGyro.P = 5000
+			bodyGyro.CFrame = humanoidRootPart.CFrame
+			bodyGyro.Parent = humanoidRootPart
+
 			print("Flying ON")
 		else
-			if bodyVelocity then
-				bodyVelocity:Destroy()
-				bodyVelocity = nil
-			end
+			-- Tắt bay
+			if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
+			if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
 			print("Flying OFF")
 		end
 	end
@@ -89,14 +96,13 @@ end)
 
 -- Điều khiển hướng bay
 RunService.Heartbeat:Connect(function()
-	if flying and bodyVelocity and humanoidRootPart then
+	if flying and bodyVelocity and bodyGyro and humanoidRootPart then
 		local moveVector = Vector3.new(
 			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
 			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
 			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
 		)
 
-		-- Hướng theo camera
 		local camCF = workspace.CurrentCamera.CFrame
 		local moveDir = (camCF.RightVector * moveVector.X)
 			+ (camCF.UpVector * moveVector.Y)
@@ -104,6 +110,7 @@ RunService.Heartbeat:Connect(function()
 
 		if moveDir.Magnitude > 0 then
 			bodyVelocity.Velocity = moveDir.Unit * speed
+			bodyGyro.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + moveDir)
 		else
 			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
 		end
