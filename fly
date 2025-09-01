@@ -32,20 +32,42 @@ end
 setupCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(setupCharacter)
 
---// Invisibility
+--// Invisibility (Ghost Mode)
 local function toggleInvisibility(state)
 	invisible = state
 	for _, obj in pairs(character:GetDescendants()) do
 		if obj:IsA("BasePart") then
 			obj.Transparency = invisible and 1 or 0
 			obj.CanCollide = not invisible
+			obj.CastShadow = not invisible
 		elseif obj:IsA("Decal") or obj:IsA("SpecialMesh") then
 			obj.Transparency = invisible and 1 or 0
+		elseif obj:IsA("BillboardGui") then
+			obj.Enabled = not invisible
+		elseif obj:IsA("Highlight") then
+			obj.Enabled = not invisible
 		end
 	end
+
 	if humanoid then
 		humanoid.NameDisplayDistance = invisible and 0 or 100
 		humanoid.HealthDisplayDistance = invisible and 0 or 100
+		if humanoid:FindFirstChild("DisplayName") then
+			humanoid.DisplayName = invisible and "" or player.DisplayName
+		end
+	end
+end
+
+--// Noclip toggle
+local function toggleNoclip()
+	noclip = not noclip
+	if not noclip and character then
+		-- trả lại va chạm khi tắt
+		for _, part in pairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = true
+			end
+		end
 	end
 end
 
@@ -67,11 +89,13 @@ local function toggleFly()
 		bodyVelocity = Instance.new("BodyVelocity")
 		bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
 		bodyVelocity.P = 5000
+		bodyVelocity.Velocity = Vector3.new(0,0,0)
 		bodyVelocity.Parent = humanoidRootPart
 
 		bodyGyro = Instance.new("BodyGyro")
 		bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
 		bodyGyro.P = 5000
+		bodyGyro.CFrame = humanoidRootPart.CFrame
 		bodyGyro.Parent = humanoidRootPart
 	else
 		if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
@@ -79,14 +103,15 @@ local function toggleFly()
 	end
 end
 
---// Fly điều khiển
+--// Fly điều khiển (ổn định hover)
 RunService.Heartbeat:Connect(function()
-	if flying and bodyVelocity and bodyGyro then
+	if flying and bodyVelocity and bodyGyro and humanoidRootPart then
 		local moveVector = Vector3.new(
 			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
 			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
 			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
 		)
+
 		local camCF = workspace.CurrentCamera.CFrame
 		local moveDir = camCF.RightVector * moveVector.X + camCF.UpVector * moveVector.Y + camCF.LookVector * moveVector.Z
 
@@ -94,7 +119,8 @@ RunService.Heartbeat:Connect(function()
 			bodyVelocity.Velocity = moveDir.Unit * flySpeed
 			bodyGyro.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + moveDir)
 		else
-			bodyVelocity.Velocity = Vector3.new(0,0,0)
+			bodyVelocity.Velocity = Vector3.new(0, 0.1, 0) -- hover
+			bodyGyro.CFrame = workspace.CurrentCamera.CFrame
 		end
 	end
 end)
@@ -143,7 +169,7 @@ createButton("Toggle Invisible", function()
 end)
 
 createButton("Toggle Noclip", function()
-	noclip = not noclip
+	toggleNoclip()
 end)
 
 createButton("Toggle Fly", function()
@@ -171,7 +197,6 @@ createButton("High Jump", function()
 		humanoid.UseJumpPower = false
 		humanoid.JumpHeight = jumpBoost and boostedJumpHeight or normalJumpHeight
 	end
-	-- cho phép nhảy trên trời luôn
 	if jumpBoost then
 		RunService.Heartbeat:Connect(function()
 			if jumpBoost and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
