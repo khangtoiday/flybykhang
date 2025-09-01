@@ -32,24 +32,29 @@ end
 setupCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(setupCharacter)
 
---// Invisibility (Full Ghost – no items, no aura)
+--// Invisibility (ẩn tất cả kể cả aura/effect)
 local function toggleInvisibility(state)
 	invisible = state
+
 	for _, obj in pairs(character:GetDescendants()) do
-		if obj:IsA("BasePart") or obj:IsA("MeshPart") or obj:IsA("UnionOperation") then
-			obj.Transparency = invisible and 1 or 0
-			obj.CanCollide = not invisible
-			obj.CastShadow = not invisible
-		elseif obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("SpecialMesh") or obj:IsA("SurfaceAppearance") then
-			obj.Transparency = invisible and 1 or 0
-		elseif obj:IsA("BillboardGui") or obj:IsA("Highlight") then
-			obj.Enabled = not invisible
-		elseif obj:IsA("Accessory") and obj:FindFirstChild("Handle") then
-			obj.Handle.Transparency = invisible and 1 or 0
-		elseif obj:IsA("Tool") and obj:FindFirstChild("Handle") then
-			obj.Handle.Transparency = invisible and 1 or 0
-		elseif obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail") then
-			obj.Enabled = not invisible
+		if invisible then
+			-- Ẩn toàn bộ ngoại hình
+			if obj:IsA("BasePart") or obj:IsA("MeshPart") or obj:IsA("UnionOperation") then
+				obj.LocalTransparencyModifier = 1
+				obj.CanCollide = false
+				obj.CastShadow = false
+			elseif obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("SurfaceAppearance") then
+				obj.Transparency = 1
+			elseif obj:IsA("BillboardGui") or obj:IsA("Highlight") then
+				obj.Enabled = false
+			elseif obj:IsA("Accessory") or obj:IsA("Tool") then
+				obj:Destroy() -- xoá hẳn phụ kiện / tool đang cầm
+			elseif obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail") then
+				obj.Enabled = false
+			end
+		else
+			-- Respawn để lấy lại mọi thứ khi hiện lại
+			player:LoadCharacter()
 		end
 	end
 
