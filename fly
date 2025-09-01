@@ -1,51 +1,57 @@
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local player = game.Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
+local character, humanoidRootPart
 local flying = false
 local bodyVelocity
 local speed = 50
 
--- Khi bấm phím F thì bật/tắt bay
+-- Hàm setup khi spawn
+local function setupCharacter(char)
+	character = char
+	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+end
+
+setupCharacter(player.Character or player.CharacterAdded:Wait())
+player.CharacterAdded:Connect(setupCharacter)
+
+-- Bấm phím
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
+
 	if input.KeyCode == Enum.KeyCode.F then
 		flying = not flying
 		if flying then
-			speed = 50 -- reset speed khi bắt đầu bay
+			speed = 50
 			bodyVelocity = Instance.new("BodyVelocity")
 			bodyVelocity.MaxForce = Vector3.new(4000,4000,4000)
+			bodyVelocity.P = 5000
 			bodyVelocity.Velocity = Vector3.new(0,0,0)
 			bodyVelocity.Parent = humanoidRootPart
 		else
-			if bodyVelocity then
-				bodyVelocity:Destroy()
-			end
+			if bodyVelocity then bodyVelocity:Destroy() end
 		end
 	end
 
-	-- Giảm tốc (phím 1)
 	if flying and input.KeyCode == Enum.KeyCode.One then
 		speed = math.max(0, speed - 10)
-		print("Speed giảm còn:", speed)
+		print("Speed:", speed)
 	end
-
-	-- Tăng tốc (phím 2)
 	if flying and input.KeyCode == Enum.KeyCode.Two then
 		speed = speed + 10
-		print("Speed tăng lên:", speed)
+		print("Speed:", speed)
 	end
 end)
 
--- Điều khiển hướng bay bằng phím W/A/S/D
-game:GetService("RunService").Heartbeat:Connect(function()
-	if flying and bodyVelocity then
+-- Điều khiển hướng bay
+RunService.Heartbeat:Connect(function()
+	if flying and bodyVelocity and humanoidRootPart then
 		local moveDir = humanoidRootPart.CFrame:VectorToWorldSpace(
 			Vector3.new(
 				(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
 				(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
-				(UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
+				(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
 			)
 		)
 		bodyVelocity.Velocity = moveDir * speed
