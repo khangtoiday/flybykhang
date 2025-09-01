@@ -32,16 +32,15 @@ end
 setupCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(setupCharacter)
 
---// Invisibility (Ghost Mode)
---// Invisibility (Full God Ghost)
+--// Invisibility (Full Ghost – no items, no aura)
 local function toggleInvisibility(state)
 	invisible = state
 	for _, obj in pairs(character:GetDescendants()) do
-		if obj:IsA("BasePart") then
+		if obj:IsA("BasePart") or obj:IsA("MeshPart") or obj:IsA("UnionOperation") then
 			obj.Transparency = invisible and 1 or 0
 			obj.CanCollide = not invisible
 			obj.CastShadow = not invisible
-		elseif obj:IsA("Decal") or obj:IsA("SpecialMesh") then
+		elseif obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("SpecialMesh") or obj:IsA("SurfaceAppearance") then
 			obj.Transparency = invisible and 1 or 0
 		elseif obj:IsA("BillboardGui") or obj:IsA("Highlight") then
 			obj.Enabled = not invisible
