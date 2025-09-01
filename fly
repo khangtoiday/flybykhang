@@ -3,21 +3,32 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
-local character, humanoidRootPart
+local character, humanoidRootPart, humanoid
 local flying = false
-local bodyVelocity, bodyGyro
+local bodyVelocity
 local speed = 50
+
+-- Cờ bật/tắt
+local jumpBoost = false
+local speedBoost = false
+
+-- Giá trị mặc định
+local normalWalkSpeed = 16
+local boostedWalkSpeed = 100
+local normalJumpPower = 50
+local boostedJumpPower = 100
 
 -- Setup khi spawn nhân vật
 local function setupCharacter(char)
 	character = char
 	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+	humanoid = character:WaitForChild("Humanoid")
 end
 
 setupCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(setupCharacter)
 
--- Xử lý bật/tắt bay + chỉnh tốc độ
+-- Xử lý input
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
@@ -30,17 +41,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			bodyVelocity.P = 5000
 			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
 			bodyVelocity.Parent = humanoidRootPart
-
-			bodyGyro = Instance.new("BodyGyro")
-			bodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
-			bodyGyro.P = 5000
-			bodyGyro.CFrame = humanoidRootPart.CFrame
-			bodyGyro.Parent = humanoidRootPart
-
 			print("Flying ON")
 		else
-			if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
-			if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+			if bodyVelocity then
+				bodyVelocity:Destroy()
+				bodyVelocity = nil
+			end
 			print("Flying OFF")
 		end
 	end
@@ -55,17 +61,42 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		speed = speed + 10
 		print("Speed:", speed)
 	end
+
+	-- Toggle chạy nhanh (G)
+	if input.KeyCode == Enum.KeyCode.G and humanoid then
+		speedBoost = not speedBoost
+		if speedBoost then
+			humanoid.WalkSpeed = boostedWalkSpeed
+			print("Super Speed ON")
+		else
+			humanoid.WalkSpeed = normalWalkSpeed
+			print("Super Speed OFF")
+		end
+	end
+
+	-- Toggle nhảy cao (H)
+	if input.KeyCode == Enum.KeyCode.H and humanoid then
+		jumpBoost = not jumpBoost
+		if jumpBoost then
+			humanoid.JumpPower = boostedJumpPower
+			print("High Jump ON")
+		else
+			humanoid.JumpPower = normalJumpPower
+			print("High Jump OFF")
+		end
+	end
 end)
 
 -- Điều khiển hướng bay
 RunService.Heartbeat:Connect(function()
 	if flying and bodyVelocity and humanoidRootPart then
 		local moveVector = Vector3.new(
-			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0), -- X
-			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0), -- Y
-			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)  -- Z
+			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
+			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
+			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
 		)
 
+		-- Hướng theo camera
 		local camCF = workspace.CurrentCamera.CFrame
 		local moveDir = (camCF.RightVector * moveVector.X)
 			+ (camCF.UpVector * moveVector.Y)
@@ -73,10 +104,6 @@ RunService.Heartbeat:Connect(function()
 
 		if moveDir.Magnitude > 0 then
 			bodyVelocity.Velocity = moveDir.Unit * speed
-			if bodyGyro then
-				-- Xoay nhân vật theo hướng bay
-				bodyGyro.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + Vector3.new(moveDir.X, 0, moveDir.Z))
-			end
 		else
 			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
 		end
