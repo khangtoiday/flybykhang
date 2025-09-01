@@ -1,79 +1,53 @@
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
-local player = Players.LocalPlayer
-local character, humanoidRootPart, humanoid
 local flying = false
 local bodyVelocity
 local speed = 50
 
--- Setup khi spawn nhân vật
-local function setupCharacter(char)
-	character = char
-	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-	humanoid = character:WaitForChild("Humanoid")
-	humanoid.AutoRotate = false -- Ngăn auto xoay
-end
-
-setupCharacter(player.Character or player.CharacterAdded:Wait())
-player.CharacterAdded:Connect(setupCharacter)
-
--- Xử lý bật/tắt bay + chỉnh tốc độ
+-- Khi bấm phím F thì bật/tắt bay
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
-
-	-- Toggle bay bằng phím F
 	if input.KeyCode == Enum.KeyCode.F then
 		flying = not flying
 		if flying then
+			speed = 50 -- reset speed khi bắt đầu bay
 			bodyVelocity = Instance.new("BodyVelocity")
-			bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-			bodyVelocity.P = 5000
-			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+			bodyVelocity.MaxForce = Vector3.new(4000,4000,4000)
+			bodyVelocity.Velocity = Vector3.new(0,0,0)
 			bodyVelocity.Parent = humanoidRootPart
-			print("Flying ON")
 		else
 			if bodyVelocity then
 				bodyVelocity:Destroy()
-				bodyVelocity = nil
 			end
-			print("Flying OFF")
 		end
 	end
 
-	-- Giảm tốc độ (1)
+	-- Giảm tốc (phím 1)
 	if flying and input.KeyCode == Enum.KeyCode.One then
 		speed = math.max(0, speed - 10)
-		print("Speed:", speed)
+		print("Speed giảm còn:", speed)
 	end
-	-- Tăng tốc độ (2)
+
+	-- Tăng tốc (phím 2)
 	if flying and input.KeyCode == Enum.KeyCode.Two then
 		speed = speed + 10
-		print("Speed:", speed)
+		print("Speed tăng lên:", speed)
 	end
 end)
 
--- Điều khiển hướng bay
-RunService.Heartbeat:Connect(function()
-	if flying and bodyVelocity and humanoidRootPart then
-		local moveVector = Vector3.new(
-			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
-			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
-			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
+-- Điều khiển hướng bay bằng phím W/A/S/D
+game:GetService("RunService").Heartbeat:Connect(function()
+	if flying and bodyVelocity then
+		local moveDir = humanoidRootPart.CFrame:VectorToWorldSpace(
+			Vector3.new(
+				(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
+				(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
+				(UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
+			)
 		)
-
-		-- Chuyển local vector sang hướng nhìn camera (chỉ lấy X và Z từ camera, bỏ Y để không bị xoay lên xuống quá nhiều)
-		local camCF = workspace.CurrentCamera.CFrame
-		local moveDir = (camCF.RightVector * moveVector.X)
-			+ (Vector3.new(0,1,0) * moveVector.Y) -- giữ Y độc lập
-			+ (Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit * moveVector.Z)
-
-		-- Cập nhật vận tốc
-		if moveDir.Magnitude > 0 then
-			bodyVelocity.Velocity = moveDir.Unit * speed
-		else
-			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-		end
+		bodyVelocity.Velocity = moveDir * speed
 	end
 end)
