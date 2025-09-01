@@ -27,13 +27,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
 	-- Giảm tốc (phím 1)
 	if flying and input.KeyCode == Enum.KeyCode.One then
-		speed = math.max(0, speed - 5)
+		speed = math.max(0, speed - 10)
 		print("Speed giảm còn:", speed)
 	end
 
 	-- Tăng tốc (phím 2)
 	if flying and input.KeyCode == Enum.KeyCode.Two then
-		speed = speed + 5
+		speed = speed + 10
 		print("Speed tăng lên:", speed)
 	end
 end)
