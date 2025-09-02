@@ -373,27 +373,15 @@ makeButton("Speed",     "Super Speed",        function()
 	setBtnState("Speed", speedBoost)
 end, true, speedBoost)
 
---// Infinite Jump
-local infiniteJump = false
-local jumpConnection
+makeButton("Jump",      "High Jump",          function()
+	jumpBoost = not jumpBoost
+	if humanoid then
+		humanoid.UseJumpPower = false
+		humanoid.JumpHeight = jumpBoost and BOOSTED_JUMPHEIGHT or NORMAL_JUMPHEIGHT
+	end
+	setBtnState("Jump", jumpBoost)
+end, true, jumpBoost)
 
-function toggleInfiniteJump()
-    infiniteJump = not infiniteJump
-    if infiniteJump then
-        -- Bắt sự kiện nhấn phím Space
-        jumpConnection = UserInputService.JumpRequest:Connect(function()
-            if humanoid then
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end)
-    else
-        if jumpConnection then
-            jumpConnection:Disconnect()
-            jumpConnection = nil
-        end
-    end
-end
-makeButton("Infinite Jump", function() toggleInfiniteJump() end)
 makeButton("FlyPlus",   "Fly Speed +",        function() flySpeed = flySpeed + 10 end, false)
 makeButton("FlyMinus",  "Fly Speed -",        function() flySpeed = math.max(0, flySpeed - 10) end, false)
 
