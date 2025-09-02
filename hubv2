@@ -187,23 +187,22 @@ if not espFolder.Parent then espFolder.Parent = player:WaitForChild("PlayerGui")
 
 local function addESP(plr)
     if not espEnabled or not plr then return end
-    
-    -- Nếu ESP đã tồn tại thì bỏ qua
     if espFolder:FindFirstChild(plr.Name .. "_ESP") then return end
 
     local container = Instance.new("Folder")
     container.Name = plr.Name .. "_ESP"
     container.Parent = espFolder
 
-    -- Highlight
+    -- Highlight xuyên tường
     local h = Instance.new("Highlight")
     h.Name = "ESP_Highlight"
     h.FillTransparency = 0.75
     h.OutlineTransparency = 0
     h.OutlineColor = Color3.fromRGB(255,0,0)
+    h.AlwaysOnTop = true
     h.Parent = container
 
-    -- NameTag
+    -- Billboard (NameTag xuyên tường)
     local tag = Instance.new("BillboardGui")
     tag.Name = "ESP_NameTag"
     tag.Size = UDim2.new(0,200,0,50)
@@ -221,27 +220,35 @@ local function addESP(plr)
     lbl.TextSize = 14
     lbl.Parent = tag
 
-    -- Hàm cập nhật adornee khi nhân vật thay đổi
+    -- Hàm update adornee (nguyên model + Head)
     local function updateESP(char)
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            h.Adornee = char
-            tag.Adornee = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        if char and char:IsA("Model") then
+            h.Adornee = char -- highlight cả model (bám ragdoll luôn)
+            local head = char:FindFirstChild("Head")
+            local hrp  = char:FindFirstChild("HumanoidRootPart")
+            if head then
+                tag.Adornee = head
+            elseif hrp then
+                tag.Adornee = hrp
+            else
+                tag.Adornee = nil
+            end
         else
             h.Adornee = nil
             tag.Adornee = nil
         end
     end
 
-    -- Lắng nghe khi character thay đổi
+    -- Lắng nghe khi player respawn / chết
     plr.CharacterAdded:Connect(function(char)
-        task.wait(0.8)
+        task.wait(0.5)
         updateESP(char)
     end)
     plr.CharacterRemoving:Connect(function()
-        updateESP(nil) -- clear khi chết
+        updateESP(nil)
     end)
 
-    -- Gán lần đầu nếu có sẵn nhân vật
+    -- Nếu đang có sẵn nhân vật thì add ngay
     if plr.Character then
         updateESP(plr.Character)
     end
