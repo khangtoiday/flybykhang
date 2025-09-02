@@ -28,10 +28,10 @@ local flySpeed         = 60
 local bodyVel, bodyGyro
 
 -- defaults (tăng speed & jump cao hơn)
-local NORMAL_WALKSPEED   = 16
-local BOOSTED_WALKSPEED  = 150
-local NORMAL_JUMPHEIGHT  = 7.2
-local BOOSTED_JUMPHEIGHT = 100
+local NORMAL_WALKSPEED   = 20
+local BOOSTED_WALKSPEED  = 120
+local NORMAL_JUMPHEIGHT  = 8
+local BOOSTED_JUMPHEIGHT = 120
 
 -- connections
 local conNoclip, conFly, conESPPlayerAdded, conAntiAFK, conNoFall, conInvisDescAdded
@@ -122,12 +122,21 @@ function toggleNoclip()
 		conNoclip = RunService.Stepped:Connect(function()
 			if character then
 				for _,p in ipairs(character:GetDescendants()) do
-					if p:IsA("BasePart") and p.CanCollide then
+					if p:IsA("BasePart") then
 						p.CanCollide = false
 					end
 				end
 			end
 		end)
+	else
+		-- Bật lại CanCollide khi tắt
+		if character then
+			for _,p in ipairs(character:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.CanCollide = true
+				end
+			end
+		end
 	end
 	setBtnState("Noclip", noclip)
 end
