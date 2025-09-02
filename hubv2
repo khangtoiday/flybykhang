@@ -179,12 +179,7 @@ function toggleNoclip()
 	setBtnState("Noclip", noclip)
 end
 
--- ESP (simple)
-local espFolder = Instance.new("Folder")
-espFolder.Name = "ESPFolder"
-pcall(function() espFolder.Parent = CoreGui end)
-if not espFolder.Parent then espFolder.Parent = player:WaitForChild("PlayerGui") end
-
+-- esp
 local function addESP(plr)
     if not espEnabled or not plr then return end
     if espFolder:FindFirstChild(plr.Name .. "_ESP") then return end
@@ -264,14 +259,23 @@ end
 function toggleESP()
     espEnabled = not espEnabled
     setBtnState("ESP", espEnabled)
-    refreshESP()
-    if conESPPlayerAdded then conESPPlayerAdded:Disconnect() conESPPlayerAdded = nil end
+    espFolder:ClearAllChildren()
+
+    if conESPPlayerAdded then
+        conESPPlayerAdded:Disconnect()
+        conESPPlayerAdded = nil
+    end
+
     if espEnabled then
-        conESPPlayerAdded = Players.PlayerAdded:Connect(function(plr)
-            plr.CharacterAdded:Connect(function()
-                task.wait(0.8)
+        -- Add ESP cho tất cả player hiện có
+        for _,plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player then
                 addESP(plr)
-            end)
+            end
+        end
+        -- Tự động add cho player mới
+        conESPPlayerAdded = Players.PlayerAdded:Connect(function(plr)
+            addESP(plr)
         end)
     end
 end
