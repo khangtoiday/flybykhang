@@ -29,9 +29,9 @@ local bodyVel, bodyGyro
 
 -- defaults (tăng speed & jump cao hơn)
 local NORMAL_WALKSPEED   = 20
-local BOOSTED_WALKSPEED  = 120
+local BOOSTED_WALKSPEED  = 200
 local NORMAL_JUMPHEIGHT  = 8
-local BOOSTED_JUMPHEIGHT = 120
+local BOOSTED_JUMPHEIGHT = 200
 
 -- connections
 local conNoclip, conFly, conESPPlayerAdded, conAntiAFK, conNoFall, conInvisDescAdded
