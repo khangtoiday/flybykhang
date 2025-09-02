@@ -1,0 +1,258 @@
+--// Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+local character, humanoid, humanoidRootPart
+
+--// Trạng thái
+local invisible = false
+local noclip = false
+local flying = false
+local speedBoost = false
+local jumpBoost = false
+local flySpeed = 50
+
+--// Body movers cho fly
+local bodyVelocity, bodyGyro
+
+--// WalkSpeed/JumpHeight gốc
+local normalWalkSpeed = 16
+local boostedWalkSpeed = 100
+local normalJumpHeight = 7.2
+local boostedJumpHeight = 50
+
+--// Setup character
+local function setupCharacter(char)
+	character = char
+	humanoid = character:WaitForChild("Humanoid")
+	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+	-- Giữ hiệu ứng khi respawn
+	if speedBoost then humanoid.WalkSpeed = boostedWalkSpeed end
+	if jumpBoost then humanoid.JumpHeight = boostedJumpHeight end
+	if invisible then task.defer(function() toggleInvisibility(true) end) end
+end
+setupCharacter(player.Character or player.CharacterAdded:Wait())
+player.CharacterAdded:Connect(setupCharacter)
+
+--// Invisibility
+function toggleInvisibility(state)
+	invisible = state
+	if not character then return end
+
+	for _, obj in pairs(character:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.Transparency = invisible and 1 or 0
+			obj.CastShadow = not invisible
+		elseif obj:IsA("Decal") or obj:IsA("SpecialMesh") then
+			obj.Transparency = invisible and 1 or 0
+		elseif obj:IsA("BillboardGui") or obj:IsA("Highlight") then
+			obj.Enabled = not invisible
+		elseif obj:IsA("Accessory") and obj:FindFirstChild("Handle") then
+			obj.Handle.Transparency = invisible and 1 or 0
+		elseif obj:IsA("Tool") and obj:FindFirstChild("Handle") then
+			obj.Handle.Transparency = invisible and 1 or 0
+		elseif obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail") then
+			obj.Enabled = not invisible
+		end
+	end
+
+	if humanoid then
+		humanoid.NameDisplayDistance = invisible and 0 or 100
+		humanoid.HealthDisplayDistance = invisible and 0 or 100
+		if humanoid:FindFirstChild("DisplayName") then
+			humanoid.DisplayName = invisible and "" or player.DisplayName
+		end
+	end
+end
+
+--// Noclip toggle
+local function toggleNoclip()
+	noclip = not noclip
+	if not noclip and character then
+		for _, part in pairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = true
+			end
+		end
+	end
+end
+
+--// Noclip loop
+RunService.Stepped:Connect(function()
+	if noclip and character then
+		for _, part in pairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end
+end)
+
+--// Fly toggle
+local function toggleFly()
+	flying = not flying
+	if flying and humanoidRootPart then
+		-- chuyển sang chế độ physics khi bay
+		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+
+		bodyVelocity = Instance.new("BodyVelocity")
+		bodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+		bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+		bodyVelocity.Parent = humanoidRootPart
+
+		bodyGyro = Instance.new("BodyGyro")
+		bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+		bodyGyro.CFrame = humanoidRootPart.CFrame
+		bodyGyro.P = 5e4
+		bodyGyro.Parent = humanoidRootPart
+	else
+		-- hủy lực khi tắt bay
+		if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
+		if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+
+		-- trả lại trạng thái humanoid bình thường
+		if humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end
+end
+
+
+--// Fly điều khiển
+RunService.Heartbeat:Connect(function()
+	if flying and bodyVelocity and bodyGyro and humanoidRootPart then
+		local moveVector = Vector3.new(
+			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
+			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
+			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
+		)
+
+		local camCF = workspace.CurrentCamera.CFrame
+		local moveDir = camCF.RightVector * moveVector.X + camCF.UpVector * moveVector.Y + camCF.LookVector * moveVector.Z
+
+		if moveDir.Magnitude > 0 then
+			bodyVelocity.Velocity = moveDir.Unit * flySpeed
+			bodyGyro.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + moveDir)
+		else
+			bodyVelocity.Velocity = Vector3.new(0, 0, 0) -- đứng yên trên không
+			bodyGyro.CFrame = workspace.CurrentCamera.CFrame
+		end
+	end
+end)
+
+
+--// Fly điều khiển
+RunService.Heartbeat:Connect(function()
+	if flying and bodyVelocity and bodyGyro and humanoidRootPart then
+		local moveVector = Vector3.new(
+			(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
+			(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0),
+			(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
+		)
+
+		local camCF = workspace.CurrentCamera.CFrame
+		local moveDir = camCF.RightVector * moveVector.X + camCF.UpVector * moveVector.Y + camCF.LookVector * moveVector.Z
+
+		if moveDir.Magnitude > 0 then
+			bodyVelocity.Velocity = moveDir.Unit * flySpeed
+			bodyGyro.CFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + moveDir)
+		else
+			bodyVelocity.Velocity = Vector3.new(0, 0.1, 0)
+			bodyGyro.CFrame = workspace.CurrentCamera.CFrame
+		end
+	end
+end)
+
+--// UI Hub (giữ lại sau khi chết)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Hub"
+ScreenGui.ResetOnSpawn = false
+
+-- Ưu tiên gắn vào CoreGui (nếu bị chặn thì gắn PlayerGui)
+pcall(function()
+	ScreenGui.Parent = CoreGui
+end)
+if not ScreenGui.Parent then
+	ScreenGui.Parent = player:WaitForChild("PlayerGui")
+end
+
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 200, 0, 270)
+Frame.Position = UDim2.new(0, 50, 0.5, -135)
+Frame.BackgroundColor3 = Color3.fromRGB(35,35,35)
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Draggable = true
+
+local UICorner = Instance.new("UICorner", Frame)
+UICorner.CornerRadius = UDim.new(0,10)
+
+local UIListLayout = Instance.new("UIListLayout", Frame)
+UIListLayout.Padding = UDim.new(0,5)
+UIListLayout.FillDirection = Enum.FillDirection.Vertical
+UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+UIListLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+
+local UIPadding = Instance.new("UIPadding", Frame)
+UIPadding.PaddingTop = UDim.new(0,5)
+
+local function createButton(text, callback)
+	local btn = Instance.new("TextButton", Frame)
+	btn.Size = UDim2.new(0.9, 0, 0, 30)
+	btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+	btn.TextColor3 = Color3.fromRGB(255,255,255)
+	btn.Text = text
+
+	local corner = Instance.new("UICorner", btn)
+	corner.CornerRadius = UDim.new(0,6)
+
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+-- Buttons
+createButton("Toggle Invisible", function()
+	toggleInvisibility(not invisible)
+end)
+
+createButton("Toggle Noclip", function()
+	toggleNoclip()
+end)
+
+createButton("Toggle Fly", function()
+	toggleFly()
+end)
+
+createButton("Fly Speed +", function()
+	flySpeed = flySpeed + 10
+end)
+
+createButton("Fly Speed -", function()
+	flySpeed = math.max(0, flySpeed - 10)
+end)
+
+createButton("Super Speed", function()
+	speedBoost = not speedBoost
+	if humanoid then
+		humanoid.WalkSpeed = speedBoost and boostedWalkSpeed or normalWalkSpeed
+	end
+end)
+
+createButton("High Jump", function()
+	jumpBoost = not jumpBoost
+	if humanoid then
+		humanoid.UseJumpPower = false
+		humanoid.JumpHeight = jumpBoost and boostedJumpHeight or normalJumpHeight
+	end
+	if jumpBoost then
+		RunService.Heartbeat:Connect(function()
+			if jumpBoost and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
+		end)
+	end
+end)
