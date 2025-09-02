@@ -151,34 +151,32 @@ function toggleFly()
     setBtnState("Fly", flying)
 end
 
--- noclip
+-- Toggle Noclip
 function toggleNoclip()
-    noclip = not noclip
-    if conNoclip then conNoclip:Disconnect() conNoclip = nil end
-
-    if noclip then
-        conNoclip = RunService.Stepped:Connect(function()
-            refreshCharacterRefs()
-            if character then
-                for _,p in ipairs(character:GetChildren()) do
-                    if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                        p.CanCollide = false
-                    end
-                end
-            end
-        end)
-    else
-        refreshCharacterRefs()
-        if character then
-            for _,p in ipairs(character:GetChildren()) do
-                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                    p.CanCollide = true
-                end
-            end
-        end
-    end
-
-    setBtnState("Noclip", noclip)
+	noclip = not noclip
+	if conNoclip then conNoclip:Disconnect() conNoclip=nil end
+	if noclip then
+		conNoclip = RunService.Stepped:Connect(function()
+			refreshCharacterRefs()
+			if character then
+				for _,p in ipairs(character:GetDescendants()) do
+					if p:IsA("BasePart") then
+							p.CanCollide = false
+					end
+				end
+			end
+		end)
+	else
+		refreshCharacterRefs()
+		if character then
+			for _,p in ipairs(character:GetDescendants()) do
+				if p:IsA("BasePart") then
+						p.CanCollide = true
+				end
+			end
+		end
+	end
+	setBtnState("Noclip", noclip)
 end
 
 -- ESP (simple)
