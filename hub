@@ -1,0 +1,408 @@
+--// Services
+local Players           = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
+local RunService        = game:GetService("RunService")
+local CoreGui           = game:GetService("CoreGui")
+local TeleportService   = game:GetService("TeleportService")
+local HttpService       = game:GetService("HttpService")
+local VirtualUser       = game:GetService("VirtualUser")
+
+local player = Players.LocalPlayer
+local character, humanoid, root
+
+-- =========================================================
+--                      STATE
+-- =========================================================
+local invisible        = false
+local noclip           = false
+local flying           = false
+local speedBoost       = false
+local jumpBoost        = false
+local espEnabled       = false
+local godMode          = false
+local antiAfkEnabled   = false
+local noFallEnabled    = false
+local flySpeed         = 60
+
+-- physics movers for fly
+local bodyVel, bodyGyro
+
+-- defaults
+local NORMAL_WALKSPEED   = 16
+local BOOSTED_WALKSPEED  = 100
+local NORMAL_JUMPHEIGHT  = 7.2
+local BOOSTED_JUMPHEIGHT = 50
+
+-- connections
+local conNoclip, conFly, conESPPlayerAdded, conAntiAFK, conNoFall, conInvisDescAdded
+
+-- keep UI button refs to update label/color
+local Buttons = {}
+
+-- =========================================================
+--                  FORWARD DECLARATIONS
+-- =========================================================
+local toggleInvisibility, setNoclip, toggleNoclip, toggleFly, toggleESP, setAntiAFK, setNoFall
+
+-- =========================================================
+--                  CHARACTER SETUP
+-- =========================================================
+local function onCharacterAdded(char)
+	character = char
+	humanoid  = character:WaitForChild("Humanoid")
+	root      = character:WaitForChild("HumanoidRootPart")
+
+	-- re-apply states after respawn
+	if speedBoost and humanoid then humanoid.WalkSpeed = BOOSTED_WALKSPEED end
+	if jumpBoost  and humanoid then humanoid.UseJumpPower = false humanoid.JumpHeight = BOOSTED_JUMPHEIGHT end
+	if invisible  then toggleInvisibility(true) end
+end
+player.CharacterAdded:Connect(onCharacterAdded)
+
+-- (defer until functions are defined)
+task.spawn(function()
+	onCharacterAdded(player.Character or player.CharacterAdded:Wait())
+end)
+
+-- =========================================================
+--                  HELPERS (UI)
+-- =========================================================
+local function setBtnStyle(btn, active)
+	if active then
+		btn.BackgroundColor3 = Color3.fromRGB(40, 160, 90)  -- xanh khi ON
+	else
+		btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)   -- xám khi OFF
+	end
+end
+
+local function setBtnState(key, active)
+	local btn = Buttons[key]
+	if not btn then return end
+	setBtnStyle(btn, active)
+	if btn:GetAttribute("BaseText") then
+		btn.Text = string.format("%s %s", btn:GetAttribute("BaseText"), active and "[ON]" or "[OFF]")
+	end
+end
+
+-- =========================================================
+--                  FEATURES
+-- =========================================================
+
+-- Invisibility (client-side render only)
+function toggleInvisibility(state)
+	invisible = state
+	if not character then return end
+
+	for _,obj in ipairs(character:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.Transparency = invisible and 1 or 0
+			obj.CastShadow  = not invisible
+		elseif obj:IsA("Decal") or obj:IsA("SpecialMesh") then
+			obj.Transparency = invisible and 1 or 0
+		elseif obj:IsA("BillboardGui") or obj:IsA("Highlight") then
+			obj.Enabled = not invisible
+		elseif (obj:IsA("Accessory") or obj:IsA("Tool")) and obj:FindFirstChild("Handle") then
+			obj.Handle.Transparency = invisible and 1 or 0
+		elseif obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail") then
+			obj.Enabled = not invisible
+		end
+	end
+
+	if conInvisDescAdded then conInvisDescAdded:Disconnect() conInvisDescAdded = nil end
+	if invisible then
+		conInvisDescAdded = character.DescendantAdded:Connect(function(obj)
+			task.defer(function()
+				if not invisible then return end
+				if obj:IsA("BasePart") then
+					obj.Transparency = 1; obj.CastShadow = false
+				elseif obj:IsA("Decal") or obj:IsA("SpecialMesh") then
+					obj.Transparency = 1
+				elseif obj:IsA("BillboardGui") or obj:IsA("Highlight") then
+					obj.Enabled = false
+				elseif (obj:IsA("Accessory") or obj:IsA("Tool")) and obj:FindFirstChild("Handle") then
+					obj.Handle.Transparency = 1
+				elseif obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail") then
+					obj.Enabled = false
+				end
+			end)
+		end)
+	end
+
+	if humanoid then
+		humanoid.NameDisplayDistance   = invisible and 0 or 100
+		humanoid.HealthDisplayDistance = invisible and 0 or 100
+	end
+	setBtnState("Invisible", invisible)
+end
+
+-- Noclip
+function setNoclip(enabled)
+	noclip = enabled
+	if conNoclip then conNoclip:Disconnect() conNoclip = nil end
+	if noclip then
+		conNoclip = RunService.Stepped:Connect(function()
+			if character then
+				for _,part in ipairs(character:GetDescendants()) do
+					if part:IsA("BasePart") then part.CanCollide = false end
+				end
+			end
+		end)
+	else
+		if character then
+			for _,part in ipairs(character:GetDescendants()) do
+				if part:IsA("BasePart") then part.CanCollide = true end
+			end
+		end
+	end
+	setBtnState("Noclip", noclip)
+end
+function toggleNoclip() setNoclip(not noclip) end
+
+-- Fly
+local function stopFlyMovers()
+	if bodyVel then bodyVel:Destroy() bodyVel = nil end
+	if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+end
+
+function toggleFly()
+	flying = not flying
+	setBtnState("Fly", flying)
+	if flying and root then
+		stopFlyMovers()
+		bodyVel = Instance.new("BodyVelocity")
+		bodyVel.MaxForce = Vector3.new(1e5,1e5,1e5)
+		bodyVel.Velocity = Vector3.zero
+		bodyVel.Parent   = root
+
+		bodyGyro = Instance.new("BodyGyro")
+		bodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
+		bodyGyro.P = 5e4
+		bodyGyro.CFrame = root.CFrame
+		bodyGyro.Parent = root
+
+		if conFly then conFly:Disconnect() conFly = nil end
+		conFly = RunService.Heartbeat:Connect(function()
+			if not (flying and bodyVel and bodyGyro and root) then return end
+			local mv = Vector3.new(
+				(UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.A) and 1 or 0),
+				(UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) and 1 or 0),
+				(UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0) - (UserInputService:IsKeyDown(Enum.KeyCode.S) and 1 or 0)
+			)
+			local cam = workspace.CurrentCamera.CFrame
+			local dir = cam.RightVector*mv.X + cam.UpVector*mv.Y + cam.LookVector*mv.Z
+			if dir.Magnitude > 0 then
+				bodyVel.Velocity = dir.Unit * flySpeed
+				bodyGyro.CFrame  = CFrame.new(root.Position, root.Position + dir)
+			else
+				bodyVel.Velocity = Vector3.zero
+				bodyGyro.CFrame  = CFrame.new(root.Position, root.Position + workspace.CurrentCamera.CFrame.LookVector)
+			end
+		end)
+	else
+		if conFly then conFly:Disconnect() conFly = nil end
+		stopFlyMovers()
+		if humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+			task.wait(0.05)
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end
+end
+
+-- ESP (Highlight)
+local espFolder = Instance.new("Folder")
+espFolder.Name = "ESPFolder"
+pcall(function() espFolder.Parent = CoreGui end)
+if not espFolder.Parent then espFolder.Parent = player:WaitForChild("PlayerGui") end
+
+local function addESP(char)
+	if not (espEnabled and char) then return end
+	local h = Instance.new("Highlight")
+	h.Name = "ESP_Highlight"
+	h.FillTransparency = 1
+	h.OutlineTransparency = 0
+	h.OutlineColor = Color3.fromRGB(255,0,0)
+	h.Adornee = char
+	h.Parent  = espFolder
+end
+
+local function refreshESP()
+	espFolder:ClearAllChildren()
+	if not espEnabled then return end
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then addESP(plr.Character) end
+	end
+end
+
+function toggleESP()
+	espEnabled = not espEnabled
+	setBtnState("ESP", espEnabled)
+	refreshESP()
+	if conESPPlayerAdded then conESPPlayerAdded:Disconnect() conESPPlayerAdded = nil end
+	if espEnabled then
+		conESPPlayerAdded = Players.PlayerAdded:Connect(function(plr)
+			plr.CharacterAdded:Connect(function(c)
+				task.wait(1)
+				addESP(c)
+			end)
+		end)
+	end
+end
+
+-- GodMode (heal each heartbeat)
+RunService.Heartbeat:Connect(function()
+	if godMode and humanoid then
+		humanoid.Health = humanoid.MaxHealth
+	end
+end)
+
+-- Anti AFK
+function setAntiAFK(state)
+	antiAfkEnabled = state
+	if conAntiAFK then conAntiAFK:Disconnect() conAntiAFK = nil end
+	if antiAfkEnabled then
+		conAntiAFK = player.Idled:Connect(function()
+			VirtualUser:Button2Down(Vector2.new(), workspace.CurrentCamera.CFrame)
+			task.wait(1)
+			VirtualUser:Button2Up(Vector2.new(), workspace.CurrentCamera.CFrame)
+		end)
+	end
+	setBtnState("AntiAFK", antiAfkEnabled)
+end
+
+-- NoFall (reset fall state safely)
+function setNoFall(state)
+	noFallEnabled = state
+	if conNoFall then conNoFall:Disconnect() conNoFall = nil end
+	if noFallEnabled then
+		conNoFall = RunService.Heartbeat:Connect(function()
+			if not (humanoid and root) then return end
+			if humanoid:GetState() == Enum.HumanoidStateType.Freefall and root.Velocity.Y < -60 then
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
+			if humanoid.FloorMaterial ~= Enum.Material.Air then
+				local st = humanoid:GetState()
+				if st == Enum.HumanoidStateType.FallingDown or st == Enum.HumanoidStateType.Ragdoll then
+					humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+				end
+			end
+		end)
+	end
+	setBtnState("NoFall", noFallEnabled)
+end
+
+-- =========================================================
+--                        UI
+-- =========================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Hub"
+ScreenGui.ResetOnSpawn = false
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then ScreenGui.Parent = player:WaitForChild("PlayerGui") end
+
+local Frame = Instance.new("Frame")
+Frame.Parent = ScreenGui
+Frame.Size = UDim2.new(0, 520, 0, 320)
+Frame.Position = UDim2.new(0.5, -260, 0.5, -160)
+Frame.BackgroundColor3 = Color3.fromRGB(45,45,45)
+Frame.BackgroundTransparency = 0.05
+Frame.Active = true
+Frame.Draggable = true
+local FrameCorner = Instance.new("UICorner", Frame); FrameCorner.CornerRadius = UDim.new(0,12)
+
+local Watermark = Instance.new("TextLabel", Frame)
+Watermark.AnchorPoint = Vector2.new(1,1)
+Watermark.Position = UDim2.new(1, -8, 1, -6)
+Watermark.Size = UDim2.new(0, 160, 0, 18)
+Watermark.BackgroundTransparency = 1
+Watermark.Text = "khangdeptrai"
+Watermark.TextSize = 13
+Watermark.Font = Enum.Font.Gotham
+Watermark.TextColor3 = Color3.fromRGB(220,220,220)
+Watermark.TextXAlignment = Enum.TextXAlignment.Right
+
+local List = Instance.new("ScrollingFrame", Frame)
+List.BackgroundTransparency = 1
+List.Position = UDim2.new(0, 10, 0, 10)
+List.Size = UDim2.new(1, -20, 1, -40)
+List.ScrollBarThickness = 6
+List.CanvasSize = UDim2.new(0,0,0,0)
+List.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+-- 2 cột dọc (UIGridLayout)
+local Grid = Instance.new("UIGridLayout", List)
+Grid.FillDirection = Enum.FillDirection.Horizontal
+Grid.FillDirectionMaxCells = 2         -- đúng 2 cột
+Grid.CellPadding = UDim2.new(0, 8, 0, 8)
+Grid.CellSize    = UDim2.new(0.5, -12, 0, 36) -- nửa khung, trừ padding
+
+local function makeButton(key, label, onClick, isToggle, defaultOn)
+	local btn = Instance.new("TextButton")
+	btn.Parent = List
+	btn:SetAttribute("BaseText", label)
+	btn.Text = isToggle and (label .. (defaultOn and " [ON]" or " [OFF]")) or label
+	btn.Size = UDim2.new(0, 200, 0, 36)
+	btn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+	btn.TextColor3 = Color3.fromRGB(255,255,255)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 14
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
+
+	Buttons[key] = btn
+	setBtnStyle(btn, defaultOn or false)
+
+	btn.MouseButton1Click:Connect(function()
+		pcall(onClick)
+	end)
+end
+
+-- =================== Buttons (2 cột) =====================
+makeButton("Fly",       "Fly (Toggle)",       function() toggleFly() end, true, flying)
+makeButton("Noclip",    "Noclip (Toggle)",    function() toggleNoclip() end, true, noclip)
+makeButton("ESP",       "ESP (Toggle)",       function() toggleESP() end, true, espEnabled)
+makeButton("Invisible", "Invisible (Toggle)", function() toggleInvisibility(not invisible) end, true, invisible)
+
+makeButton("AntiAFK",   "Anti-AFK (Toggle)",  function() setAntiAFK(not antiAfkEnabled) end, true, antiAfkEnabled)
+makeButton("NoFall",    "NoFall (Toggle)",    function() setNoFall(not noFallEnabled) end, true, noFallEnabled)
+makeButton("Speed",     "Super Speed",        function()
+	speedBoost = not speedBoost
+	if humanoid then humanoid.WalkSpeed = speedBoost and BOOSTED_WALKSPEED or NORMAL_WALKSPEED end
+	setBtnState("Speed", speedBoost)
+end, true, speedBoost)
+
+makeButton("Jump",      "High Jump",          function()
+	jumpBoost = not jumpBoost
+	if humanoid then
+		humanoid.UseJumpPower = false
+		humanoid.JumpHeight = jumpBoost and BOOSTED_JUMPHEIGHT or NORMAL_JUMPHEIGHT
+	end
+	setBtnState("Jump", jumpBoost)
+end, true, jumpBoost)
+
+makeButton("FlyPlus",   "Fly Speed +",        function() flySpeed = flySpeed + 10 end, false)
+makeButton("FlyMinus",  "Fly Speed -",        function() flySpeed = math.max(0, flySpeed - 10) end, false)
+
+makeButton("God",       "GodMode (Toggle)",   function()
+	godMode = not godMode
+	setBtnState("God", godMode)
+end, true, godMode)
+
+makeButton("Rejoin",    "Rejoin",             function() TeleportService:Teleport(game.PlaceId, player) end, false)
+makeButton("ServerHop", "Server Hop",         function()
+	local ok, res = pcall(function()
+		return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=50"))
+	end)
+	if ok and res and res.data then
+		for _,srv in ipairs(res.data) do
+			if srv.playing < srv.maxPlayers then
+				TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, player)
+				return
+			end
+		end
+	end
+end, false)
+
+-- =========================================================
+--  OPTIONAL: giữ UI khi respawn (ResetOnSpawn=false đã xử lý)
+--  Các trạng thái đã tự áp lại trong onCharacterAdded().
+-- =========================================================
