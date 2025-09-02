@@ -1,0 +1,498 @@
+--// Services
+local Players           = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
+local RunService        = game:GetService("RunService")
+local CoreGui           = game:GetService("CoreGui")
+local VirtualUser       = game:GetService("VirtualUser")
+
+local player = Players.LocalPlayer
+local character, humanoid, root
+
+-- =========================================================
+--                      STATE
+-- =========================================================
+local invisible            = false
+local noclip               = false
+local flying               = false
+local speedBoost           = false
+local espEnabled           = false
+local godMode              = false
+local antiAfkEnabled       = false
+local noFallEnabled        = false
+local infiniteJumpEnabled  = false
+local flySpeed             = 60
+
+-- physics movers for fly
+local bodyVel, bodyGyro
+
+-- defaults (kept for speed boost toggle)
+local NORMAL_WALKSPEED   = 20
+local BOOSTED_WALKSPEED  = 200
+
+-- connections (kept so we can disconnect)
+local conNoclip, conFly, conESPPlayerAdded, conAntiAFK, conNoFall, conInvisDescAdded
+
+-- keep UI button refs to update label/color
+local Buttons = {}
+
+-- helper to safely get humanoid/root
+local function refreshCharacterRefs()
+    character = player.Character
+    if character then
+        humanoid = character:FindFirstChildOfClass("Humanoid") or character:FindFirstChild("Humanoid")
+        root = character:FindFirstChild("HumanoidRootPart")
+    else
+        humanoid = nil
+        root = nil
+    end
+end
+
+-- =========================================================
+--                  FEATURES (defined first)
+-- =========================================================
+
+-- UI helpers
+local function setBtnStyle(btn, active)
+    if not btn then return end
+    if active then
+        btn.BackgroundColor3 = Color3.fromRGB(40, 160, 90)
+    else
+        btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    end
+end
+
+local function setBtnState(key, active)
+    local btn = Buttons[key]
+    if not btn then return end
+    setBtnStyle(btn, active)
+    if btn:GetAttribute("BaseText") then
+        btn.Text = string.format("%s %s", btn:GetAttribute("BaseText"), active and "[ON]" or "[OFF]")
+    end
+end
+
+-- Toggle Invisibility
+function toggleInvisibility(state)
+    invisible = state and true or false
+    if conInvisDescAdded then conInvisDescAdded:Disconnect() conInvisDescAdded = nil end
+
+    refreshCharacterRefs()
+    if invisible and character then
+        for _,desc in ipairs(character:GetDescendants()) do
+            if desc:IsA("BasePart") or desc:IsA("Decal") then
+                -- use LocalTransparencyModifier so we don't permanently change Transparency
+                pcall(function() desc.LocalTransparencyModifier = 1 end)
+            end
+        end
+        conInvisDescAdded = character.DescendantAdded:Connect(function(desc)
+            if invisible and (desc:IsA("BasePart") or desc:IsA("Decal")) then
+                task.wait()
+                pcall(function() desc.LocalTransparencyModifier = 1 end)
+            end
+        end)
+    else
+        if character then
+            for _,desc in ipairs(character:GetDescendants()) do
+                if desc:IsA("BasePart") or desc:IsA("Decal") then
+                    pcall(function() desc.LocalTransparencyModifier = 0 end)
+                end
+            end
+        end
+    end
+    setBtnState("Invisible", invisible)
+end
+
+-- Toggle Fly
+function toggleFly()
+    refreshCharacterRefs()
+    if not root then
+        -- cannot enable fly without root
+        flying = false
+        setBtnState("Fly", flying)
+        return
+    end
+
+    flying = not flying
+    if flying then
+        -- create movers
+        bodyVel = Instance.new("BodyVelocity")
+        bodyVel.MaxForce = Vector3.new(1e5,1e5,1e5)
+        bodyVel.Velocity = Vector3.new()
+        bodyVel.Parent = root
+
+        bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
+        bodyGyro.P = 1e4
+        bodyGyro.CFrame = root.CFrame
+        bodyGyro.Parent = root
+
+        conFly = RunService.RenderStepped:Connect(function()
+            if not root or not workspace.CurrentCamera then return end
+            local camCF = workspace.CurrentCamera.CFrame
+            local move = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + camCF.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - camCF.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - camCF.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + camCF.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + camCF.UpVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move = move - camCF.UpVector end
+
+            if move.Magnitude > 0 then
+                bodyVel.Velocity = move.Unit * flySpeed
+            else
+                bodyVel.Velocity = Vector3.zero
+            end
+            bodyGyro.CFrame = camCF
+        end)
+    else
+        if conFly then conFly:Disconnect() conFly = nil end
+        if bodyVel then bodyVel:Destroy() bodyVel = nil end
+        if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+    end
+    setBtnState("Fly", flying)
+end
+
+-- Toggle Noclip
+function toggleNoclip()
+    noclip = not noclip
+    if conNoclip then conNoclip:Disconnect() conNoclip=nil end
+    if noclip then
+        conNoclip = RunService.Stepped:Connect(function()
+            refreshCharacterRefs()
+            if character then
+                for _,p in ipairs(character:GetDescendants()) do
+                    if p:IsA("BasePart") then
+                        p.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        refreshCharacterRefs()
+        if character then
+            for _,p in ipairs(character:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = true
+                end
+            end
+        end
+    end
+    setBtnState("Noclip", noclip)
+end
+
+-- ESP (simple)
+local espFolder = Instance.new("Folder")
+espFolder.Name = "ESPFolder"
+pcall(function() espFolder.Parent = CoreGui end)
+if not espFolder.Parent then espFolder.Parent = player:WaitForChild("PlayerGui") end
+
+local function addESP(plr)
+    if not (espEnabled and plr and plr.Character) then return end
+    local char = plr.Character
+    if not char:FindFirstChild("HumanoidRootPart") then return end
+
+    local h = Instance.new("Highlight")
+    h.Name = "ESP_Highlight"
+    h.FillTransparency = 0.75
+    h.OutlineTransparency = 0
+    h.OutlineColor = Color3.fromRGB(255,0,0)
+    h.Adornee = char
+    h.Parent  = espFolder
+
+    local head = char:FindFirstChild("Head")
+    if head then
+        local tag = Instance.new("BillboardGui")
+        tag.Name = "ESP_NameTag"
+        tag.Size = UDim2.new(0,200,0,50)
+        tag.StudsOffset = Vector3.new(0,2,0)
+        tag.AlwaysOnTop = true
+        tag.Parent = head
+
+        local lbl = Instance.new("TextLabel")
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.new(1,0,1,0)
+        lbl.Text = plr.Name
+        lbl.TextColor3 = Color3.fromRGB(255,0,0)
+        lbl.TextStrokeTransparency = 0.5
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 14
+        lbl.Parent = tag
+    end
+end
+
+local function refreshESP()
+    espFolder:ClearAllChildren()
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then addESP(plr) end
+    end
+end
+
+function toggleESP()
+    espEnabled = not espEnabled
+    setBtnState("ESP", espEnabled)
+    refreshESP()
+    if conESPPlayerAdded then conESPPlayerAdded:Disconnect() conESPPlayerAdded = nil end
+    if espEnabled then
+        conESPPlayerAdded = Players.PlayerAdded:Connect(function(plr)
+            plr.CharacterAdded:Connect(function()
+                task.wait(0.8)
+                addESP(plr)
+            end)
+        end)
+    end
+end
+
+-- GodMode (simple)
+RunService.Heartbeat:Connect(function()
+    if godMode and humanoid then
+        if humanoid.Health < humanoid.MaxHealth then
+            humanoid.Health = humanoid.MaxHealth
+        end
+        humanoid.BreakJointsOnDeath = false
+    end
+end)
+
+-- Anti AFK
+function setAntiAFK(state)
+    antiAfkEnabled = state and true or false
+    if conAntiAFK then conAntiAFK:Disconnect() conAntiAFK = nil end
+    if antiAfkEnabled then
+        conAntiAFK = player.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    end
+    setBtnState("AntiAFK", antiAfkEnabled)
+end
+
+-- NoFall
+function setNoFall(state)
+    noFallEnabled = state and true or false
+    if conNoFall then conNoFall:Disconnect() conNoFall = nil end
+    if noFallEnabled then
+        conNoFall = RunService.Heartbeat:Connect(function()
+            if root and humanoid then
+                if root.Velocity.Y < -60 then
+                    root.Velocity = Vector3.new(root.Velocity.X, -5, root.Velocity.Z)
+                end
+            end
+        end)
+    end
+    setBtnState("NoFall", noFallEnabled)
+end
+
+-- Infinite Jump (hold Space to continuously 'jump' anywhere)
+local spaceHeld = false
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = true
+        if infiniteJumpEnabled and humanoid then
+            pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
+        end
+    end
+end)
+UserInputService.InputEnded:Connect(function(input, gpe)
+    if gpe then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = false
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if infiniteJumpEnabled and spaceHeld and humanoid then
+        -- ensure we repeatedly request a jump; pcall to be safe
+        pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
+    end
+end)
+
+function setInfiniteJump(state)
+    infiniteJumpEnabled = state and true or false
+    setBtnState("Jump", infiniteJumpEnabled)
+end
+
+-- =========================================================
+--                  CHARACTER SETUP (after features are defined)
+-- =========================================================
+local function onCharacterAdded(char)
+    character = char
+    refreshCharacterRefs()
+
+    -- re-apply states after respawn
+    if speedBoost and humanoid then
+        pcall(function() humanoid.WalkSpeed = BOOSTED_WALKSPEED end)
+    end
+    if invisible then
+        -- call toggleInvisibility(true) to reapply transparency hooks
+        toggleInvisibility(true)
+    end
+end
+
+Players.LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+-- initial (if character already exists)
+task.spawn(function()
+    if player.Character then
+        onCharacterAdded(player.Character)
+    else
+        player.CharacterAdded:Wait()
+        onCharacterAdded(player.Character)
+    end
+end)
+
+-- =========================================================
+-- UI HUB
+-- =========================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Hub"
+ScreenGui.ResetOnSpawn = false
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then ScreenGui.Parent = player:WaitForChild("PlayerGui") end
+
+local Frame = Instance.new("Frame")
+Frame.Parent = ScreenGui
+Frame.Size = UDim2.new(0, 220, 0, 420)
+Frame.Position = UDim2.new(0.5, -110, 0.5, -210)
+Frame.BackgroundColor3 = Color3.fromRGB(45,45,45)
+Frame.BackgroundTransparency = 0.05
+
+-- Drag
+local dragging, dragInput, dragStart, startPos
+local function update(input)
+    local delta = input.Position - dragStart
+    Frame.Position = UDim2.new(
+        startPos.X.Scale, startPos.X.Offset + delta.X,
+        startPos.Y.Scale, startPos.Y.Offset + delta.Y
+    )
+end
+Frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Frame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+Frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
+
+local FrameCorner = Instance.new("UICorner", Frame); FrameCorner.CornerRadius = UDim.new(0,10)
+
+local Watermark = Instance.new("TextLabel", Frame)
+Watermark.AnchorPoint = Vector2.new(1,1)
+Watermark.Position = UDim2.new(1, -6, 1, -4)
+Watermark.Size = UDim2.new(0, 120, 0, 16)
+Watermark.BackgroundTransparency = 1
+Watermark.Text = "khangdeptrai"
+Watermark.TextSize = 11
+Watermark.Font = Enum.Font.Gotham
+Watermark.TextColor3 = Color3.fromRGB(220,220,220)
+Watermark.TextXAlignment = Enum.TextXAlignment.Right
+
+local List = Instance.new("ScrollingFrame", Frame)
+List.BackgroundTransparency = 1
+List.Position = UDim2.new(0, 8, 0, 8)
+List.Size = UDim2.new(1, -16, 1, -28)
+List.ScrollBarThickness = 4
+List.CanvasSize = UDim2.new(0,0,0,0)
+List.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local Layout = Instance.new("UIListLayout", List)
+Layout.Padding = UDim.new(0, 6)
+Layout.FillDirection = Enum.FillDirection.Vertical
+Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Button func
+local function makeButton(key, label, onClick, isToggle, defaultOn)
+    local btn = Instance.new("TextButton")
+    btn.Parent = List
+    btn:SetAttribute("BaseText", label)
+    btn.Text = isToggle and (label .. (defaultOn and " [ON]" or " [OFF]")) or label
+    btn.Size = UDim2.new(1, -12, 0, 26)
+    btn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+
+    Buttons[key] = btn
+    setBtnStyle(btn, defaultOn or false)
+
+    btn.MouseButton1Click:Connect(function()
+        local ok, err = pcall(onClick)
+        if not ok then
+            warn("Button callback error for", key, err)
+        end
+    end)
+end
+
+-- Create core toggles
+makeButton("Fly", "Fly", toggleFly, true, false)
+makeButton("Noclip", "Noclip", toggleNoclip, true, false)
+makeButton("Invisible", "Invisible", function() toggleInvisibility(not invisible) end, true, false)
+makeButton("ESP", "ESP", toggleESP, true, false)
+makeButton("GodMode", "GodMode", function() godMode = not godMode; setBtnState("GodMode", godMode) end, true, false)
+makeButton("AntiAFK", "Anti AFK", function() setAntiAFK(not antiAfkEnabled) end, true, false)
+makeButton("NoFall", "No Fall", function() setNoFall(not noFallEnabled) end, true, false)
+makeButton("Jump", "Infinite Jump", function() setInfiniteJump(not infiniteJumpEnabled) end, true, false)
+makeButton("Speed", "Speed Boost", function()
+    speedBoost = not speedBoost
+    refreshCharacterRefs()
+    if humanoid then
+        pcall(function() humanoid.WalkSpeed = (speedBoost and BOOSTED_WALKSPEED) or NORMAL_WALKSPEED end)
+    end
+    setBtnState("Speed", speedBoost)
+end, true, false)
+
+-- Extra controls (10-unit adjustments, no caps)
+makeButton("FlyFaster", "Fly Speed +", function() flySpeed = flySpeed + 10 end, false, false)
+makeButton("FlySlower", "Fly Speed -", function() flySpeed = flySpeed - 10 end, false, false)
+makeButton("JumpHigher", "Jump Power +", function()
+    refreshCharacterRefs()
+    if humanoid then
+        pcall(function()
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = humanoid.JumpPower + 10
+        end)
+    end
+end, false, false)
+makeButton("JumpLower", "Jump Power -", function()
+    refreshCharacterRefs()
+    if humanoid then
+        pcall(function()
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = humanoid.JumpPower - 10
+        end)
+    end
+end, false, false)
+makeButton("WalkFaster", "Walk Speed +", function()
+    refreshCharacterRefs()
+    if humanoid then pcall(function() humanoid.WalkSpeed = humanoid.WalkSpeed + 10 end) end
+end, false, false)
+makeButton("WalkSlower", "Walk Speed -", function()
+    refreshCharacterRefs()
+    if humanoid then pcall(function() humanoid.WalkSpeed = humanoid.WalkSpeed - 10 end) end
+end, false, false)
+
+-- Ctrl to toggle hub visibility
+local hubVisible = true
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
+        hubVisible = not hubVisible
+        Frame.Visible = hubVisible
+    end
+end)
