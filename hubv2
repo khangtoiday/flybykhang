@@ -179,23 +179,42 @@ function toggleNoclip()
 	setBtnState("Noclip", noclip)
 end
 
--- esp
+-- ESP (robust)
+local espEnabled = espEnabled or false
+local espFolder = Instance.new("Folder")
+espFolder.Name = "ESPFolder"
+pcall(function() espFolder.Parent = CoreGui end)
+if not espFolder.Parent then espFolder.Parent = player:WaitForChild("PlayerGui") end
+
+-- tạo/nhận Highlight trong Character
+local function ensureHighlight(char)
+    if not (char and char:IsA("Model")) then return nil end
+    local h = char:FindFirstChild("ESP_Highlight")
+    if not h then
+        h = Instance.new("Highlight")
+        h.Name = "ESP_Highlight"
+        h.FillTransparency = 0.75
+        h.OutlineTransparency = 0
+        h.OutlineColor = Color3.fromRGB(255,0,0)
+        pcall(function() h.AlwaysOnTop = true end) -- tránh lỗi nếu property unavailable
+        h.Adornee = char
+        h.Parent = char
+    else
+        -- cập nhật lại phòng khi bị game chỉnh
+        pcall(function() h.AlwaysOnTop = true end)
+        h.Adornee = char
+        h.Enabled = true
+    end
+    return h
+end
+
 local function addESP(plr)
-    if not espEnabled or not plr then return end
+    if not espEnabled or not plr or plr == player then return end
     if espFolder:FindFirstChild(plr.Name .. "_ESP") then return end
 
     local container = Instance.new("Folder")
     container.Name = plr.Name .. "_ESP"
     container.Parent = espFolder
-
-    -- Highlight xuyên tường
-    local h = Instance.new("Highlight")
-    h.Name = "ESP_Highlight"
-    h.FillTransparency = 0.75
-    h.OutlineTransparency = 0
-    h.OutlineColor = Color3.fromRGB(255,0,0)
-    h.AlwaysOnTop = true
-    h.Parent = container
 
     -- Billboard (NameTag xuyên tường)
     local tag = Instance.new("BillboardGui")
@@ -215,10 +234,11 @@ local function addESP(plr)
     lbl.TextSize = 14
     lbl.Parent = tag
 
-    -- Hàm update adornee (nguyên model + Head)
     local function updateESP(char)
         if char and char:IsA("Model") then
-            h.Adornee = char -- highlight cả model (bám ragdoll luôn)
+            -- Highlight gắn trực tiếp vào Character (bám ragdoll, ổn định render)
+            ensureHighlight(char)
+
             local head = char:FindFirstChild("Head")
             local hrp  = char:FindFirstChild("HumanoidRootPart")
             if head then
@@ -229,28 +249,49 @@ local function addESP(plr)
                 tag.Adornee = nil
             end
         else
-            h.Adornee = nil
             tag.Adornee = nil
         end
     end
 
-    -- Lắng nghe khi player respawn / chết
+    -- Lắng nghe respawn/cleanup
     plr.CharacterAdded:Connect(function(char)
-        task.wait(0.5)
+        task.wait(0.3)
         updateESP(char)
     end)
-    plr.CharacterRemoving:Connect(function()
-        updateESP(nil)
+    plr.CharacterRemoving:Connect(function(char)
+        -- không xoá container để giữ NameTag; highlight sẽ bị xoá cùng char
+        -- (khi spawn lại ensureHighlight sẽ tạo mới)
     end)
 
-    -- Nếu đang có sẵn nhân vật thì add ngay
+    -- nếu đã có nhân vật thì set ngay
     if plr.Character then
         updateESP(plr.Character)
     end
 end
 
+local function removeESPFor(plr)
+    -- xoá GUI container
+    local c = espFolder:FindFirstChild(plr.Name .. "_ESP")
+    if c then c:Destroy() end
+    -- gỡ highlight tồn tại trong Character (nếu có)
+    local char = plr.Character
+    if char then
+        local h = char:FindFirstChild("ESP_Highlight")
+        if h then h:Destroy() end
+    end
+end
+
 local function refreshESP()
+    -- dọn GUI
     espFolder:ClearAllChildren()
+    -- dọn highlight cũ còn dính trong character
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local h = plr.Character:FindFirstChild("ESP_Highlight")
+            if h then h:Destroy() end
+        end
+    end
+    -- add lại tất cả
     for _,plr in ipairs(Players:GetPlayers()) do
         if plr ~= player then addESP(plr) end
     end
@@ -259,26 +300,29 @@ end
 function toggleESP()
     espEnabled = not espEnabled
     setBtnState("ESP", espEnabled)
-    espFolder:ClearAllChildren()
 
-    if conESPPlayerAdded then
-        conESPPlayerAdded:Disconnect()
-        conESPPlayerAdded = nil
-    end
+    if conESPPlayerAdded then conESPPlayerAdded:Disconnect() conESPPlayerAdded = nil end
 
     if espEnabled then
-        -- Add ESP cho tất cả player hiện có
-        for _,plr in ipairs(Players:GetPlayers()) do
-            if plr ~= player then
-                addESP(plr)
-            end
-        end
-        -- Tự động add cho player mới
+        refreshESP()
+        -- auto áp cho người mới vào
         conESPPlayerAdded = Players.PlayerAdded:Connect(function(plr)
             addESP(plr)
         end)
+        -- dọn khi player rời
+        Players.PlayerRemoving:Connect(function(plr)
+            removeESPFor(plr)
+        end)
+    else
+        -- tắt: dọn hết GUI + highlight trong character
+        for _,plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player then
+                removeESPFor(plr)
+            end
+        end
     end
 end
+
 
 -- GodMode (simple)
 RunService.Heartbeat:Connect(function()
