@@ -250,11 +250,20 @@ function toggleESP()
 end
 
 -- GodMode (heal each heartbeat)
-RunService.Heartbeat:Connect(function()
-	if godMode and humanoid then
-		humanoid.Health = humanoid.MaxHealth
-	end
-end)
+function toggleGodMode()
+    godMode = not godMode
+    if godMode then
+        task.spawn(function()
+            while godMode do
+                if humanoid then
+                    humanoid.Health = humanoid.MaxHealth
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+end
 
 -- Anti AFK
 function setAntiAFK(state)
@@ -271,24 +280,18 @@ function setAntiAFK(state)
 end
 
 -- NoFall (reset fall state safely)
-function setNoFall(state)
-	noFallEnabled = state
-	if conNoFall then conNoFall:Disconnect() conNoFall = nil end
-	if noFallEnabled then
-		conNoFall = RunService.Heartbeat:Connect(function()
-			if not (humanoid and root) then return end
-			if humanoid:GetState() == Enum.HumanoidStateType.Freefall and root.Velocity.Y < -60 then
-				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-			end
-			if humanoid.FloorMaterial ~= Enum.Material.Air then
-				local st = humanoid:GetState()
-				if st == Enum.HumanoidStateType.FallingDown or st == Enum.HumanoidStateType.Ragdoll then
-					humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-				end
-			end
-		end)
-	end
-	setBtnState("NoFall", noFallEnabled)
+function toggleNoFall()
+    noFallEnabled = not noFallEnabled
+    if noFallEnabled then
+        task.spawn(function()
+            while noFallEnabled do
+                if humanoid then
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
 end
 
 -- =========================================================
@@ -370,15 +373,27 @@ makeButton("Speed",     "Super Speed",        function()
 	setBtnState("Speed", speedBoost)
 end, true, speedBoost)
 
-makeButton("Jump",      "High Jump",          function()
-	jumpBoost = not jumpBoost
-	if humanoid then
-		humanoid.UseJumpPower = false
-		humanoid.JumpHeight = jumpBoost and BOOSTED_JUMPHEIGHT or NORMAL_JUMPHEIGHT
-	end
-	setBtnState("Jump", jumpBoost)
-end, true, jumpBoost)
+--// Infinite Jump
+local infiniteJump = false
+local jumpConnection
 
+function toggleInfiniteJump()
+    infiniteJump = not infiniteJump
+    if infiniteJump then
+        -- Bắt sự kiện nhấn phím Space
+        jumpConnection = UserInputService.JumpRequest:Connect(function()
+            if humanoid then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    else
+        if jumpConnection then
+            jumpConnection:Disconnect()
+            jumpConnection = nil
+        end
+    end
+end
+makeButton("Infinite Jump", function() toggleInfiniteJump() end)
 makeButton("FlyPlus",   "Fly Speed +",        function() flySpeed = flySpeed + 10 end, false)
 makeButton("FlyMinus",  "Fly Speed -",        function() flySpeed = math.max(0, flySpeed - 10) end, false)
 
