@@ -186,36 +186,64 @@ pcall(function() espFolder.Parent = CoreGui end)
 if not espFolder.Parent then espFolder.Parent = player:WaitForChild("PlayerGui") end
 
 local function addESP(plr)
-    if not (espEnabled and plr and plr.Character) then return end
-    local char = plr.Character
-    if not char:FindFirstChild("HumanoidRootPart") then return end
+    if not espEnabled or not plr then return end
+    
+    -- Nếu ESP đã tồn tại thì bỏ qua
+    if espFolder:FindFirstChild(plr.Name .. "_ESP") then return end
 
+    local container = Instance.new("Folder")
+    container.Name = plr.Name .. "_ESP"
+    container.Parent = espFolder
+
+    -- Highlight
     local h = Instance.new("Highlight")
     h.Name = "ESP_Highlight"
     h.FillTransparency = 0.75
     h.OutlineTransparency = 0
     h.OutlineColor = Color3.fromRGB(255,0,0)
-    h.Adornee = char
-    h.Parent  = espFolder
+    h.Parent = container
 
-    local head = char:FindFirstChild("Head")
-    if head then
-        local tag = Instance.new("BillboardGui")
-        tag.Name = "ESP_NameTag"
-        tag.Size = UDim2.new(0,200,0,50)
-        tag.StudsOffset = Vector3.new(0,2,0)
-        tag.AlwaysOnTop = true
-        tag.Parent = head
+    -- NameTag
+    local tag = Instance.new("BillboardGui")
+    tag.Name = "ESP_NameTag"
+    tag.Size = UDim2.new(0,200,0,50)
+    tag.StudsOffset = Vector3.new(0,2,0)
+    tag.AlwaysOnTop = true
+    tag.Parent = container
 
-        local lbl = Instance.new("TextLabel")
-        lbl.BackgroundTransparency = 1
-        lbl.Size = UDim2.new(1,0,1,0)
-        lbl.Text = plr.Name
-        lbl.TextColor3 = Color3.fromRGB(255,0,0)
-        lbl.TextStrokeTransparency = 0.5
-        lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 14
-        lbl.Parent = tag
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.new(1,0,1,0)
+    lbl.Text = plr.Name
+    lbl.TextColor3 = Color3.fromRGB(255,0,0)
+    lbl.TextStrokeTransparency = 0.5
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 14
+    lbl.Parent = tag
+
+    -- Hàm cập nhật adornee khi nhân vật thay đổi
+    local function updateESP(char)
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            h.Adornee = char
+            tag.Adornee = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        else
+            h.Adornee = nil
+            tag.Adornee = nil
+        end
+    end
+
+    -- Lắng nghe khi character thay đổi
+    plr.CharacterAdded:Connect(function(char)
+        task.wait(0.8)
+        updateESP(char)
+    end)
+    plr.CharacterRemoving:Connect(function()
+        updateESP(nil) -- clear khi chết
+    end)
+
+    -- Gán lần đầu nếu có sẵn nhân vật
+    if plr.Character then
+        updateESP(plr.Character)
     end
 end
 
