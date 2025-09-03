@@ -651,10 +651,12 @@ end, false, false)
 
 -- Ctrl to toggle hub visibility
 local hubVisible = true
+
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
-    if input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
+    if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
         hubVisible = not hubVisible
-        Frame.Visible = hubVisible
+        Frame.Visible = hubVisible -- chỉ ẩn/hiện GUI, script vẫn chạy
     end
 end)
+
