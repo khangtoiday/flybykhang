@@ -101,6 +101,80 @@ function toggleInvisibility(state)
     setBtnState("Invisible", invisible)
 end
 
+-- FullBright
+local fullBrightEnabled = false
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+
+local function applyFullBright()
+    Lighting.Brightness = 2
+    Lighting.ClockTime = 14
+    Lighting.FogStart = 0
+    Lighting.FogEnd = 1e9
+    Lighting.Ambient = Color3.new(0.6, 0.6, 0.6) -- dịu hơn
+    Lighting.OutdoorAmbient = Color3.new(0.6, 0.6, 0.6)
+    Lighting.GlobalShadows = true -- giữ bóng để không bị phẳng quá
+    Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+    Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
+
+    -- Nếu có Atmosphere thì chỉnh nó trong suốt thay vì xóa
+    for _, v in pairs(Lighting:GetChildren()) do
+        if v:IsA("Atmosphere") then
+            v.Density = 0
+            v.Haze = 0
+            v.Glare = 0
+        elseif v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") 
+            or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+            v.Enabled = false
+        end
+    end
+end
+
+local loopConn
+local oldSettings = nil
+
+local function setFullBright(state)
+    fullBrightEnabled = state
+    if state then
+        -- lưu lại setting gốc 1 lần
+        if not oldSettings then
+            oldSettings = {
+                Brightness = Lighting.Brightness,
+                ClockTime = Lighting.ClockTime,
+                FogStart = Lighting.FogStart,
+                FogEnd = Lighting.FogEnd,
+                Ambient = Lighting.Ambient,
+                OutdoorAmbient = Lighting.OutdoorAmbient,
+                GlobalShadows = Lighting.GlobalShadows,
+                ColorShift_Top = Lighting.ColorShift_Top,
+                ColorShift_Bottom = Lighting.ColorShift_Bottom
+            }
+        end
+
+        applyFullBright()
+        if not loopConn then
+            loopConn = RunService.RenderStepped:Connect(applyFullBright)
+        end
+    else
+        if loopConn then
+            loopConn:Disconnect()
+            loopConn = nil
+        end
+        -- trả lại setting gốc của game
+        if oldSettings then
+            Lighting.Brightness = oldSettings.Brightness
+            Lighting.ClockTime = oldSettings.ClockTime
+            Lighting.FogStart = oldSettings.FogStart
+            Lighting.FogEnd = oldSettings.FogEnd
+            Lighting.Ambient = oldSettings.Ambient
+            Lighting.OutdoorAmbient = oldSettings.OutdoorAmbient
+            Lighting.GlobalShadows = oldSettings.GlobalShadows
+            Lighting.ColorShift_Top = oldSettings.ColorShift_Top
+            Lighting.ColorShift_Bottom = oldSettings.ColorShift_Bottom
+        end
+    end
+end
+
 -- Toggle Fly
 function toggleFly()
     refreshCharacterRefs()
@@ -540,7 +614,12 @@ makeButton("Speed", "Speed Boost", function()
     setBtnState("Speed", speedBoost)
 end, true, false)
 
--- Extra controls (10-unit adjustments, no caps)
+-- Gán vào nút hub
+makeButton("FullBright", "Full Bright", function()
+    setFullBright(not fullBrightEnabled)
+    setBtnState("FullBright", fullBrightEnabled)
+end, true, false)
+
 makeButton("FlyFaster", "Fly Speed +", function() flySpeed = flySpeed + 10 end, false, false)
 makeButton("FlySlower", "Fly Speed -", function() flySpeed = flySpeed - 10 end, false, false)
 makeButton("JumpHigher", "Jump Power +", function()
