@@ -226,16 +226,17 @@ function toggleFly()
     setBtnState("Fly", flying)
 end
 
--- letepot
+-- Teleport bằng phím R
 local TELEPORT_KEY = Enum.KeyCode.R
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == TELEPORT_KEY then
-        local character = player.Character
-        if character and character:FindFirstChild("HumanoidRootPart") then
-            local root = character.HumanoidRootPart
-            local targetPos = mouse.Hit.p + Vector3.new(0, 5, 0) -- +5 để không bị kẹt dưới đất
+    if input.UserInputType == Enum.UserInputType.Keyboard 
+       and input.KeyCode == TELEPORT_KEY 
+       and not gameProcessed then
+
+        refreshCharacterRefs() -- cập nhật character, humanoid, root
+        if root then
+            local targetPos = mouse.Hit.Position + Vector3.new(0, 5, 0)
             root.CFrame = CFrame.new(targetPos)
         end
     end
