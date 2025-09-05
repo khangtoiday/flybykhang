@@ -227,6 +227,32 @@ function toggleFly()
 end
 
 -- Teleport bằng phím R
+local GuiService = game:GetService("GuiService")
+
+local function getCursorWorldPoint()
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+
+    -- lấy vị trí chuột màn hình (chuẩn viewport, đã trừ inset GUI)
+    local mousePos = UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
+
+    -- bắn ray từ camera → điểm chuột
+    local ray = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {player.Character}
+
+    -- bắn dài 1000 studs
+    local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+    if result then
+        return result.Position + Vector3.new(0, 5, 0)
+    else
+        -- không trúng gì → dịch thẳng trước mặt camera
+        return ray.Origin + ray.Direction * 50
+    end
+end
+
 -- === Teleport to cursor (R) — safe version ===
 local CAS = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
@@ -278,22 +304,6 @@ CAS:BindActionAtPriority("K_Teleport", function(_, state, input)
         teleportToCursor()
     end
 end, false, 9e6, Enum.KeyCode.R)
-
--- sửa lại hàm lấy vị trí chuột:
-local function getCursorWorldPoint()
-    -- Mouse.Hit có thể nil trong vài tick đầu → bọc pcall
-    local ok, cf = pcall(function() return mouse.Hit end)
-    if ok and cf then
-        return cf.Position + Vector3.new(0, 5, 0) -- nhấc lên 5 stud
-    else
-        -- fallback: trước mặt camera 50 stud
-        local cam = workspace.CurrentCamera
-        if cam then
-            return cam.CFrame.Position + cam.CFrame.LookVector * 50
-        end
-    end
-    return nil
-end
 
 -- (tuỳ chọn) thêm nút toggle trong hub nếu muốn
 -- makeButton("Teleport", "Teleport [R]", function() tpEnabled = not tpEnabled; setBtnState("Teleport", tpEnabled) end, true, true)
