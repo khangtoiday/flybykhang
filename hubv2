@@ -7,6 +7,7 @@ local VirtualUser       = game:GetService("VirtualUser")
 
 local player = Players.LocalPlayer
 local character, humanoid, root
+local mouse = player:GetMouse()
 
 -- =========================================================
 --                      STATE
