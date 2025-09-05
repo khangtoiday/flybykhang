@@ -279,6 +279,22 @@ CAS:BindActionAtPriority("K_Teleport", function(_, state, input)
     end
 end, false, 9e6, Enum.KeyCode.R)
 
+-- sửa lại hàm lấy vị trí chuột:
+local function getCursorWorldPoint()
+    -- Mouse.Hit có thể nil trong vài tick đầu → bọc pcall
+    local ok, cf = pcall(function() return mouse.Hit end)
+    if ok and cf then
+        return cf.Position + Vector3.new(0, 5, 0) -- nhấc lên 5 stud
+    else
+        -- fallback: trước mặt camera 50 stud
+        local cam = workspace.CurrentCamera
+        if cam then
+            return cam.CFrame.Position + cam.CFrame.LookVector * 50
+        end
+    end
+    return nil
+end
+
 -- (tuỳ chọn) thêm nút toggle trong hub nếu muốn
 -- makeButton("Teleport", "Teleport [R]", function() tpEnabled = not tpEnabled; setBtnState("Teleport", tpEnabled) end, true, true)
 
