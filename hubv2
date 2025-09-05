@@ -225,6 +225,21 @@ function toggleFly()
     setBtnState("Fly", flying)
 end
 
+-- letepot
+local TELEPORT_KEY = Enum.KeyCode.R
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == TELEPORT_KEY then
+        local character = player.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local root = character.HumanoidRootPart
+            local targetPos = mouse.Hit.p + Vector3.new(0, 5, 0) -- +5 để không bị kẹt dưới đất
+            root.CFrame = CFrame.new(targetPos)
+        end
+    end
+end)
+
 -- Toggle Noclip
 function toggleNoclip()
 	noclip = not noclip
