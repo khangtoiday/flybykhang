@@ -234,10 +234,24 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
        and input.KeyCode == TELEPORT_KEY 
        and not gameProcessed then
 
-        refreshCharacterRefs() -- cập nhật character, humanoid, root
+        refreshCharacterRefs()
         if root then
-            local targetPos = mouse.Hit.Position + Vector3.new(0, 5, 0)
-            root.CFrame = CFrame.new(targetPos)
+            local cam = workspace.CurrentCamera
+            local mousePos = UserInputService:GetMouseLocation()
+            local ray = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
+            
+            -- raycast xuống đất để lấy điểm dịch chuyển
+            local params = RaycastParams.new()
+            params.FilterDescendantsInstances = {character}
+            params.FilterType = Enum.RaycastFilterType.Blacklist
+            local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+
+            if result then
+                root.CFrame = CFrame.new(result.Position + Vector3.new(0, 5, 0))
+            else
+                -- nếu không trúng gì thì dịch lên trước mặt 50 stud
+                root.CFrame = CFrame.new(ray.Origin + ray.Direction * 50)
+            end
         end
     end
 end)
