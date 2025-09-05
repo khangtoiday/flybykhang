@@ -227,34 +227,60 @@ function toggleFly()
 end
 
 -- Teleport bằng phím R
-local TELEPORT_KEY = Enum.KeyCode.R
+-- === Teleport to cursor (R) — safe version ===
+local CAS = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if input.UserInputType == Enum.UserInputType.Keyboard 
-       and input.KeyCode == TELEPORT_KEY 
-       and not gameProcessed then
+local tpEnabled = true
 
-        refreshCharacterRefs()
-        if root then
-            local cam = workspace.CurrentCamera
-            local mousePos = UserInputService:GetMouseLocation()
-            local ray = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
-            
-            -- raycast xuống đất để lấy điểm dịch chuyển
-            local params = RaycastParams.new()
-            params.FilterDescendantsInstances = {character}
-            params.FilterType = Enum.RaycastFilterType.Blacklist
-            local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+local function getCursorWorldPoint(maxDist)
+    maxDist = maxDist or 1000
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
 
-            if result then
-                root.CFrame = CFrame.new(result.Position + Vector3.new(0, 5, 0))
-            else
-                -- nếu không trúng gì thì dịch lên trước mặt 50 stud
-                root.CFrame = CFrame.new(ray.Origin + ray.Direction * 50)
-            end
-        end
+    -- Dùng tọa độ chuột đúng chuẩn viewport (trừ gui inset)
+    local mousePos = UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
+    local ray = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {character} -- tránh bắn trúng chính mình
+
+    local result = workspace:Raycast(ray.Origin, ray.Direction * maxDist, params)
+    if result then
+        return result.Position + Vector3.new(0, 5, 0) -- nhấc lên 5 stud để khỏi dính đất
+    else
+        -- không trúng gì: cho dịch 50 stud trước mặt camera
+        return ray.Origin + ray.Direction * 50
     end
-end)
+end
+
+local function teleportToCursor()
+    if not tpEnabled then return end
+    refreshCharacterRefs()
+    if not root then return end
+
+    local pos = getCursorWorldPoint()
+    if not pos then return end
+
+    -- reset vận tốc để không bị nảy
+    pcall(function()
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.CFrame = CFrame.new(pos)
+    end)
+end
+
+-- Gỡ bind cũ (nếu có) rồi bind lại với priority rất cao để không bị game nuốt phím
+CAS:UnbindAction("K_Teleport")
+CAS:BindActionAtPriority("K_Teleport", function(_, state, input)
+    if state == Enum.UserInputState.Begin and input.KeyCode == Enum.KeyCode.R then
+        -- Đừng dựa vào gameProcessed; nhiều game set true → mình vẫn chạy
+        teleportToCursor()
+    end
+end, false, 9e6, Enum.KeyCode.R)
+
+-- (tuỳ chọn) thêm nút toggle trong hub nếu muốn
+-- makeButton("Teleport", "Teleport [R]", function() tpEnabled = not tpEnabled; setBtnState("Teleport", tpEnabled) end, true, true)
 
 -- Toggle Noclip
 function toggleNoclip()
