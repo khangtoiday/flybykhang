@@ -945,7 +945,7 @@ local function refreshSpawnList()
 		btn.MouseButton1Click:Connect(function()
 			refreshCharacterRefs()
 			if root then
-				root.CFrame = CFrame.new(pos + Vector3.new(0,3,0))
+				root.CFrame = CFrame.new(pos) -- root.CFrame = CFrame.new(pos + Vector3.new(0,3,0)) nếu không muốn bị kẹt
 			end
 		end)
 
