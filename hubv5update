@@ -1,0 +1,1133 @@
+--// Services
+local Players           = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
+local RunService        = game:GetService("RunService")
+local CoreGui           = game:GetService("CoreGui")
+local VirtualUser       = game:GetService("VirtualUser")
+local GuiService = game:GetService("GuiService")
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+player.CharacterAdded:Connect(function(char)
+	character = char
+	root = character:WaitForChild("HumanoidRootPart")
+	humanoid = character:WaitForChild("Humanoid")
+end)
+
+
+-- =========================================================
+--                      STATE
+-- =========================================================
+local invisible            = false
+local noclip               = false
+local flying               = false
+local speedBoost           = false
+local espEnabled           = false
+local godMode              = false
+local antiAfkEnabled       = false
+local noFallEnabled        = false
+local infiniteJumpEnabled  = false
+local flySpeed             = 60
+
+-- physics movers for fly
+local bodyVel, bodyGyro
+
+-- defaults (kept for speed boost toggle)
+local NORMAL_WALKSPEED   = 20
+local BOOSTED_WALKSPEED  = 200
+
+-- connections (kept so we can disconnect)
+local conNoclip, conFly, conESPPlayerAdded, conAntiAFK, conNoFall, conInvisDescAdded
+
+-- keep UI button refs to update label/color
+local Buttons = {}
+
+-- helper to safely get humanoid/root
+local function refreshCharacterRefs()
+	character = player.Character
+	if character then
+		humanoid = character:FindFirstChildOfClass("Humanoid") or character:FindFirstChild("Humanoid")
+		root = character:FindFirstChild("HumanoidRootPart")
+	else
+		humanoid = nil
+		root = nil
+	end
+end
+
+-- =========================================================
+--                  FEATURES (defined first)
+-- =========================================================
+
+-- UI helpers
+local function setBtnStyle(btn, active)
+	if not btn then return end
+	if active then
+		btn.BackgroundColor3 = Color3.fromRGB(40, 160, 90)
+	else
+		btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+	end
+end
+
+local function setBtnState(key, active)
+	local btn = Buttons[key]
+	if not btn then return end
+	setBtnStyle(btn, active)
+	if btn:GetAttribute("BaseText") then
+		btn.Text = string.format("%s %s", btn:GetAttribute("BaseText"), active and "[ON]" or "[OFF]")
+	end
+end
+
+
+-- Toggle Invisibility
+function toggleInvisibility(state)
+	invisible = state and true or false
+	if conInvisDescAdded then conInvisDescAdded:Disconnect() conInvisDescAdded = nil end
+
+	refreshCharacterRefs()
+	if invisible and character then
+		for _,desc in ipairs(character:GetDescendants()) do
+			if desc:IsA("BasePart") or desc:IsA("Decal") then
+				-- use LocalTransparencyModifier so we don't permanently change Transparency
+				pcall(function() desc.LocalTransparencyModifier = 1 end)
+			end
+		end
+		conInvisDescAdded = character.DescendantAdded:Connect(function(desc)
+			if invisible and (desc:IsA("BasePart") or desc:IsA("Decal")) then
+				task.wait()
+				pcall(function() desc.LocalTransparencyModifier = 1 end)
+			end
+		end)
+	else
+		if character then
+			for _,desc in ipairs(character:GetDescendants()) do
+				if desc:IsA("BasePart") or desc:IsA("Decal") then
+					pcall(function() desc.LocalTransparencyModifier = 0 end)
+				end
+			end
+		end
+	end
+	setBtnState("Invisible", invisible)
+end
+
+-- FullBright
+local fullBrightEnabled = false
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+
+local function applyFullBright()
+	Lighting.Brightness = 2
+	Lighting.ClockTime = 14
+	Lighting.FogStart = 0
+	Lighting.FogEnd = 1e9
+	Lighting.Ambient = Color3.new(0.6, 0.6, 0.6) -- dịu hơn
+	Lighting.OutdoorAmbient = Color3.new(0.6, 0.6, 0.6)
+	Lighting.GlobalShadows = true -- giữ bóng để không bị phẳng quá
+	Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+	Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
+
+	-- Nếu có Atmosphere thì chỉnh nó trong suốt thay vì xóa
+	for _, v in pairs(Lighting:GetChildren()) do
+		if v:IsA("Atmosphere") then
+			v.Density = 0
+			v.Haze = 0
+			v.Glare = 0
+		elseif v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") 
+			or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+			v.Enabled = false
+		end
+	end
+end
+
+local loopConn
+local oldSettings = nil
+
+local function setFullBright(state)
+	fullBrightEnabled = state
+	if state then
+		-- lưu lại setting gốc 1 lần
+		if not oldSettings then
+			oldSettings = {
+				Brightness = Lighting.Brightness,
+				ClockTime = Lighting.ClockTime,
+				FogStart = Lighting.FogStart,
+				FogEnd = Lighting.FogEnd,
+				Ambient = Lighting.Ambient,
+				OutdoorAmbient = Lighting.OutdoorAmbient,
+				GlobalShadows = Lighting.GlobalShadows,
+				ColorShift_Top = Lighting.ColorShift_Top,
+				ColorShift_Bottom = Lighting.ColorShift_Bottom
+			}
+		end
+
+		applyFullBright()
+		if not loopConn then
+			loopConn = RunService.RenderStepped:Connect(applyFullBright)
+		end
+	else
+		if loopConn then
+			loopConn:Disconnect()
+			loopConn = nil
+		end
+		-- trả lại setting gốc của game
+		if oldSettings then
+			Lighting.Brightness = oldSettings.Brightness
+			Lighting.ClockTime = oldSettings.ClockTime
+			Lighting.FogStart = oldSettings.FogStart
+			Lighting.FogEnd = oldSettings.FogEnd
+			Lighting.Ambient = oldSettings.Ambient
+			Lighting.OutdoorAmbient = oldSettings.OutdoorAmbient
+			Lighting.GlobalShadows = oldSettings.GlobalShadows
+			Lighting.ColorShift_Top = oldSettings.ColorShift_Top
+			Lighting.ColorShift_Bottom = oldSettings.ColorShift_Bottom
+		end
+	end
+end
+
+-- Toggle Fly
+function toggleFly()
+	refreshCharacterRefs()
+	if not root then
+		-- cannot enable fly without root
+		flying = false
+		setBtnState("Fly", flying)
+		return
+	end
+
+	flying = not flying
+	if flying then
+		-- create movers
+		bodyVel = Instance.new("BodyVelocity")
+		bodyVel.MaxForce = Vector3.new(1e5,1e5,1e5)
+		bodyVel.Velocity = Vector3.new()
+		bodyVel.Parent = root
+
+		bodyGyro = Instance.new("BodyGyro")
+		bodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
+		bodyGyro.P = 1e4
+		bodyGyro.CFrame = root.CFrame
+		bodyGyro.Parent = root
+
+		conFly = RunService.RenderStepped:Connect(function()
+			if not root or not workspace.CurrentCamera then return end
+			local camCF = workspace.CurrentCamera.CFrame
+			local move = Vector3.zero
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + camCF.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - camCF.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - camCF.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + camCF.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + camCF.UpVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move = move - camCF.UpVector end
+
+			if move.Magnitude > 0 then
+				bodyVel.Velocity = move.Unit * flySpeed
+			else
+				bodyVel.Velocity = Vector3.zero
+			end
+			bodyGyro.CFrame = camCF
+		end)
+	else
+		if conFly then conFly:Disconnect() conFly = nil end
+		if bodyVel then bodyVel:Destroy() bodyVel = nil end
+		if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+	end
+	setBtnState("Fly", flying)
+end
+
+-- tele
+local function refreshCharacterRefs()
+	character = player.Character
+	if character then
+		humanoid = character:FindFirstChildOfClass("Humanoid") or character:FindFirstChild("Humanoid")
+		root = character:FindFirstChild("HumanoidRootPart")
+	else
+		humanoid = nil
+		root = nil
+	end
+end
+
+-- Ban đầu
+refreshCharacterRefs()
+
+-- Cập nhật khi respawn
+player.CharacterAdded:Connect(function(char)
+	task.wait(0.5) -- chờ load
+	refreshCharacterRefs()
+end)
+
+--// Soru
+local SORU_KEY = Enum.KeyCode.R
+local SORU_DISTANCE = 200 -- khoảng cách dịch chuyển
+
+-- Hàm lấy điểm đích từ chuột
+local function getCursorWorldPoint()
+	local cam = workspace.CurrentCamera
+	if not cam then return nil end
+
+	local mousePos = UserInputService:GetMouseLocation()
+	local ray = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
+
+	-- Bắn tia xa (10000 stud) để lấy điểm đúng con trỏ
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+	params.FilterDescendantsInstances = {player.Character}
+
+	local result = workspace:Raycast(ray.Origin, ray.Direction * 10000, params)
+	if result then
+		return result.Position
+	end
+	return nil
+end
+
+-- Lắng nghe phím bấm để Soru
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == SORU_KEY then
+		refreshCharacterRefs()
+		if root then
+			local target = getCursorWorldPoint()
+			if target then
+				root.CFrame = CFrame.new(target + Vector3.new(0, 3, 0)) -- +3 để không kẹt dưới đất
+			end
+		end
+	end
+end)
+
+-- (tuỳ chọn) thêm nút toggle trong hub nếu muốn
+-- makeButton("Teleport", "Teleport [R]", function() tpEnabled = not tpEnabled; setBtnState("Teleport", tpEnabled) end, true, true)
+
+-- Toggle Noclip
+function toggleNoclip()
+	noclip = not noclip
+	if conNoclip then conNoclip:Disconnect() conNoclip=nil end
+	if noclip then
+		conNoclip = RunService.Stepped:Connect(function()
+			refreshCharacterRefs()
+			if character then
+				for _,p in ipairs(character:GetDescendants()) do
+					if p:IsA("BasePart") then
+						p.CanCollide = false
+					end
+				end
+			end
+		end)
+	else
+		refreshCharacterRefs()
+		if character then
+			for _,p in ipairs(character:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.CanCollide = true
+				end
+			end
+		end
+	end
+	setBtnState("Noclip", noclip)
+end
+
+-- Hàm tạo bản sao
+-- nơi lưu tất cả clone tạo ra (theo thứ tự từ cũ -> mới)
+
+local clones = {}
+local cloneFolder = workspace:FindFirstChild("K_Clones")
+if not cloneFolder then
+	cloneFolder = Instance.new("Folder")
+	cloneFolder.Name = "K_Clones"
+	cloneFolder.Parent = workspace
+end
+
+local function updateCloneButtons()
+	if Buttons and Buttons["CloneCreate"] then
+		Buttons["CloneCreate"].Text = ("Create Clone (x%d)"):format(#clones)
+	end
+	if Buttons and Buttons["CloneDelete"] then
+		Buttons["CloneDelete"].Text = (#clones > 0) and "Delete Oldest Clone" or "Delete Oldest Clone (none)"
+	end
+end
+
+local function createClone()
+	refreshCharacterRefs()
+	if not character then
+		warn("Clone: character nil"); return
+	end
+
+	local prevArch = character.Archivable
+	character.Archivable = true
+	local ok, clone = pcall(function() return character:Clone() end)
+	character.Archivable = prevArch
+
+	if not ok or not clone then
+		warn("Clone failed:", tostring(ok)); return
+	end
+
+	clone.Name = ("%s_Clone_%d"):format(player.Name, #clones + 1)
+
+	-- xoá script
+	for _, obj in ipairs(clone:GetDescendants()) do
+		if obj:IsA("LocalScript") or obj:IsA("Script") then
+			obj:Destroy()
+		end
+	end
+
+	-- anchor toàn bộ body để đứng im
+	for _, part in ipairs(clone:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = true
+		end
+	end
+
+	local rootClone = clone:FindFirstChild("HumanoidRootPart")
+	if rootClone and root then
+		-- đặt clone đúng chỗ player đang đứng (không bay cao)
+		clone:PivotTo(root.CFrame)
+	end
+
+	-- humanoid freeze
+	local h = clone:FindFirstChildOfClass("Humanoid")
+	if h then
+		h.AutoRotate = false
+		h.PlatformStand = true
+		h:ChangeState(Enum.HumanoidStateType.Physics)
+		h.BreakJointsOnDeath = false
+		h.Health = h.MaxHealth
+	end
+
+	-- tạo TouchBlock để nhấn plate
+	if rootClone then
+		local touchBlock = Instance.new("Part")
+		touchBlock.Size = Vector3.new(4, 2, 4)
+		touchBlock.Anchored = false
+		touchBlock.CanCollide = true
+		touchBlock.Transparency = 1 -- vô hình
+		touchBlock.CFrame = rootClone.CFrame - Vector3.new(0, rootClone.Size.Y/2 + 1, 0) -- ngay dưới chân
+		touchBlock.Parent = clone
+	end
+
+	clone.Parent = cloneFolder
+	table.insert(clones, clone)
+	updateCloneButtons()
+end
+
+local function deleteOldestClone()
+	if #clones == 0 then
+		updateCloneButtons()
+		return
+	end
+	local oldest = table.remove(clones, 1)
+	if oldest and oldest.Parent then
+		oldest:Destroy()
+	end
+	updateCloneButtons()
+end
+
+-- ESP (robust)
+local espEnabled = espEnabled or false
+local espFolder = Instance.new("Folder")
+espFolder.Name = "ESPFolder"
+pcall(function() espFolder.Parent = CoreGui end)
+if not espFolder.Parent then espFolder.Parent = player:WaitForChild("PlayerGui") end
+
+-- tạo/nhận Highlight trong Character
+local function ensureHighlight(char)
+	if not (char and char:IsA("Model")) then return nil end
+	local h = char:FindFirstChild("ESP_Highlight")
+	if not h then
+		h = Instance.new("Highlight")
+		h.Name = "ESP_Highlight"
+		h.FillTransparency = 0.75
+		h.OutlineTransparency = 0
+		h.OutlineColor = Color3.fromRGB(255,0,0)
+		pcall(function() h.AlwaysOnTop = true end) -- tránh lỗi nếu property unavailable
+		h.Adornee = char
+		h.Parent = char
+	else
+		-- cập nhật lại phòng khi bị game chỉnh
+		pcall(function() h.AlwaysOnTop = true end)
+		h.Adornee = char
+		h.Enabled = true
+	end
+	return h
+end
+
+local function addESP(plr)
+	if not espEnabled or not plr or plr == player then return end
+	if espFolder:FindFirstChild(plr.Name .. "_ESP") then return end
+
+	local container = Instance.new("Folder")
+	container.Name = plr.Name .. "_ESP"
+	container.Parent = espFolder
+
+	-- Billboard (NameTag xuyên tường)
+	local tag = Instance.new("BillboardGui")
+	tag.Name = "ESP_NameTag"
+	tag.Size = UDim2.new(0,200,0,50)
+	tag.StudsOffset = Vector3.new(0,2,0)
+	tag.AlwaysOnTop = true
+	tag.Parent = container
+
+	local lbl = Instance.new("TextLabel")
+	lbl.BackgroundTransparency = 1
+	lbl.Size = UDim2.new(1,0,1,0)
+	lbl.Text = plr.Name
+	lbl.TextColor3 = Color3.fromRGB(255,0,0)
+	lbl.TextStrokeTransparency = 0.5
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 14
+	lbl.Parent = tag
+
+	local function updateESP(char)
+		if char and char:IsA("Model") then
+			-- Highlight gắn trực tiếp vào Character (bám ragdoll, ổn định render)
+			ensureHighlight(char)
+
+			local head = char:FindFirstChild("Head")
+			local hrp  = char:FindFirstChild("HumanoidRootPart")
+			if head then
+				tag.Adornee = head
+			elseif hrp then
+				tag.Adornee = hrp
+			else
+				tag.Adornee = nil
+			end
+		else
+			tag.Adornee = nil
+		end
+	end
+
+	-- Lắng nghe respawn/cleanup
+	plr.CharacterAdded:Connect(function(char)
+		task.wait(0.3)
+		updateESP(char)
+	end)
+	plr.CharacterRemoving:Connect(function(char)
+		-- không xoá container để giữ NameTag; highlight sẽ bị xoá cùng char
+		-- (khi spawn lại ensureHighlight sẽ tạo mới)
+	end)
+
+	-- nếu đã có nhân vật thì set ngay
+	if plr.Character then
+		updateESP(plr.Character)
+	end
+end
+
+local function removeESPFor(plr)
+	-- xoá GUI container
+	local c = espFolder:FindFirstChild(plr.Name .. "_ESP")
+	if c then c:Destroy() end
+	-- gỡ highlight tồn tại trong Character (nếu có)
+	local char = plr.Character
+	if char then
+		local h = char:FindFirstChild("ESP_Highlight")
+		if h then h:Destroy() end
+	end
+end
+
+local function refreshESP()
+	-- dọn GUI
+	espFolder:ClearAllChildren()
+	-- dọn highlight cũ còn dính trong character
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local h = plr.Character:FindFirstChild("ESP_Highlight")
+			if h then h:Destroy() end
+		end
+	end
+	-- add lại tất cả
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then addESP(plr) end
+	end
+end
+
+function toggleESP()
+	espEnabled = not espEnabled
+	setBtnState("ESP", espEnabled)
+
+	if conESPPlayerAdded then conESPPlayerAdded:Disconnect() conESPPlayerAdded = nil end
+
+	if espEnabled then
+		refreshESP()
+		-- auto áp cho người mới vào
+		conESPPlayerAdded = Players.PlayerAdded:Connect(function(plr)
+			addESP(plr)
+		end)
+		-- dọn khi player rời
+		Players.PlayerRemoving:Connect(function(plr)
+			removeESPFor(plr)
+		end)
+	else
+		-- tắt: dọn hết GUI + highlight trong character
+		for _,plr in ipairs(Players:GetPlayers()) do
+			if plr ~= player then
+				removeESPFor(plr)
+			end
+		end
+	end
+end
+
+
+-- GodMode (simple)
+RunService.Heartbeat:Connect(function()
+	if godMode and humanoid then
+		if humanoid.Health < humanoid.MaxHealth then
+			humanoid.Health = humanoid.MaxHealth
+		end
+		humanoid.BreakJointsOnDeath = false
+	end
+end)
+
+-- Anti AFK
+function setAntiAFK(state)
+	antiAfkEnabled = state and true or false
+	if conAntiAFK then conAntiAFK:Disconnect() conAntiAFK = nil end
+	if antiAfkEnabled then
+		conAntiAFK = player.Idled:Connect(function()
+			VirtualUser:CaptureController()
+			VirtualUser:ClickButton2(Vector2.new())
+		end)
+	end
+	setBtnState("AntiAFK", antiAfkEnabled)
+end
+
+-- ================= Teleport MENU LOGIC =================
+local function refreshTPList()
+	for _, child in ipairs(tpList:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then
+			local item = Instance.new("TextButton")
+			item.Size = UDim2.new(1, -6, 0, 26)
+			item.BackgroundColor3 = Color3.fromRGB(90,140,255)
+			item.TextColor3 = Color3.fromRGB(0,0,0)
+			item.Font = Enum.Font.Gotham
+			item.TextSize = 14
+			item.Text = plr.Name
+			Instance.new("UICorner", item).CornerRadius = UDim.new(0,6)
+			item.Parent = tpList
+
+			item.MouseButton1Click:Connect(function()
+				refreshCharacterRefs()
+				if root and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+					root.CFrame = CFrame.new(plr.Character.HumanoidRootPart.Position)
+				end
+			end)
+		end
+	end
+end
+
+-- update khi player vào/ra để danh sách luôn mới
+Players.PlayerAdded:Connect(function() refreshTPList() end)
+Players.PlayerRemoving:Connect(function() refreshTPList() end)
+
+-- NoFall
+function setNoFall(state)
+	noFallEnabled = state and true or false
+	if conNoFall then conNoFall:Disconnect() conNoFall = nil end
+	if noFallEnabled then
+		conNoFall = RunService.Heartbeat:Connect(function()
+			if root and humanoid then
+				if root.Velocity.Y < -60 then
+					root.Velocity = Vector3.new(root.Velocity.X, -5, root.Velocity.Z)
+				end
+			end
+		end)
+	end
+	setBtnState("NoFall", noFallEnabled)
+end
+
+-- Infinite Jump (hold Space to continuously 'jump' anywhere)
+local spaceHeld = false
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Space then
+		spaceHeld = true
+		if infiniteJumpEnabled and humanoid then
+			pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
+		end
+	end
+end)
+UserInputService.InputEnded:Connect(function(input, gpe)
+	if gpe then return end
+	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Space then
+		spaceHeld = false
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	if infiniteJumpEnabled and spaceHeld and humanoid then
+		-- ensure we repeatedly request a jump; pcall to be safe
+		pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
+	end
+end)
+
+function setInfiniteJump(state)
+	infiniteJumpEnabled = state and true or false
+	setBtnState("Jump", infiniteJumpEnabled)
+end
+
+-- =========================================================
+--                  CHARACTER SETUP (after features are defined)
+-- =========================================================
+local function onCharacterAdded(char)
+	character = char
+	refreshCharacterRefs()
+
+	-- re-apply states after respawn
+	if speedBoost and humanoid then
+		pcall(function() humanoid.WalkSpeed = BOOSTED_WALKSPEED end)
+	end
+	if invisible then
+		-- call toggleInvisibility(true) to reapply transparency hooks
+		toggleInvisibility(true)
+	end
+end
+
+Players.LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+-- initial (if character already exists)
+task.spawn(function()
+	if player.Character then
+		onCharacterAdded(player.Character)
+	else
+		player.CharacterAdded:Wait()
+		onCharacterAdded(player.Character)
+	end
+end)
+
+-- =========================================================
+-- UI HUB
+-- =========================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Hub"
+ScreenGui.ResetOnSpawn = false
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then ScreenGui.Parent = player:WaitForChild("PlayerGui") end
+
+local Frame = Instance.new("Frame")
+Frame.Parent = ScreenGui
+Frame.Size = UDim2.new(0, 220, 0, 420)
+Frame.Position = UDim2.new(0.5, -110, 0.5, -210)
+Frame.BackgroundColor3 = Color3.fromRGB(45,45,45)
+Frame.BackgroundTransparency = 0.05
+
+-- Drag
+local dragging, dragInput, dragStart, startPos
+local function update(input)
+	local delta = input.Position - dragStart
+	Frame.Position = UDim2.new(
+		startPos.X.Scale, startPos.X.Offset + delta.X,
+		startPos.Y.Scale, startPos.Y.Offset + delta.Y
+	)
+end
+Frame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+		input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = Frame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+Frame.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or 
+		input.UserInputType == Enum.UserInputType.Touch then
+		dragInput = input
+	end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		update(input)
+	end
+end)
+
+local FrameCorner = Instance.new("UICorner", Frame); FrameCorner.CornerRadius = UDim.new(0,10)
+
+local Watermark = Instance.new("TextLabel", Frame)
+Watermark.AnchorPoint = Vector2.new(1,1)
+Watermark.Position = UDim2.new(1, -6, 1, -4)
+Watermark.Size = UDim2.new(0, 120, 0, 16)
+Watermark.BackgroundTransparency = 1
+Watermark.Text = "khangdeptrai"
+Watermark.TextSize = 11
+Watermark.Font = Enum.Font.Gotham
+Watermark.TextColor3 = Color3.fromRGB(220,220,220)
+Watermark.TextXAlignment = Enum.TextXAlignment.Right
+
+local List = Instance.new("ScrollingFrame", Frame)
+List.BackgroundTransparency = 1
+List.Position = UDim2.new(0, 8, 0, 8)
+List.Size = UDim2.new(1, -16, 1, -28)
+List.ScrollBarThickness = 4
+List.CanvasSize = UDim2.new(0,0,0,0)
+List.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local Layout = Instance.new("UIListLayout", List)
+Layout.Padding = UDim.new(0, 6)
+Layout.FillDirection = Enum.FillDirection.Vertical
+Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- ================= Teleport MENU UI =================
+-- ================= Teleport MENU UI =================
+-- ================= Teleport MENU UI =================
+local tpFrame = Instance.new("Frame")
+tpFrame.Name = "TeleportFrame"
+tpFrame.Size = UDim2.new(0, 160, 0, 200)
+tpFrame.Position = UDim2.new(1, 10, 0, 0) -- hiện bên phải hub
+tpFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+tpFrame.BorderSizePixel = 0
+tpFrame.Visible = false
+tpFrame.Active = true
+tpFrame.BackgroundTransparency = 0
+Instance.new("UICorner", tpFrame).CornerRadius = UDim.new(0,6)
+tpFrame.Parent = Frame  -- QUAN TRỌNG: parent vào Frame gốc, không phải List
+
+local tpList = Instance.new("ScrollingFrame")
+tpList.Name = "TeleportList"
+tpList.Parent = tpFrame
+tpList.Size = UDim2.new(1, -8, 1, -8)
+tpList.Position = UDim2.new(0, 4, 0, 4)
+tpList.BackgroundTransparency = 1
+tpList.ScrollBarThickness = 6
+tpList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local tpLayout = Instance.new("UIListLayout", tpList)
+tpLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tpLayout.Padding = UDim.new(0,4)
+
+-- nút đóng
+local closeBtn = Instance.new("TextButton")
+closeBtn.Name = "TP_Close"
+closeBtn.Parent = tpFrame
+closeBtn.AnchorPoint = Vector2.new(1, 0)
+closeBtn.Size = UDim2.new(0, 20, 0, 20)
+closeBtn.Position = UDim2.new(1, -6, 0, 6)
+closeBtn.BackgroundTransparency = 0.2
+closeBtn.Text = "×"
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 16
+closeBtn.TextColor3 = Color3.fromRGB(200,200,200)
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,6)
+closeBtn.MouseButton1Click:Connect(function() tpFrame.Visible = false end)
+
+-- Hàm refresh danh sách
+local function refreshTPList()
+	for _, child in ipairs(tpList:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then
+			local item = Instance.new("TextButton")
+			item.Size = UDim2.new(1, -6, 0, 26)
+			item.BackgroundColor3 = Color3.fromRGB(90,140,255)
+			item.TextColor3 = Color3.fromRGB(0,0,0)
+			item.Font = Enum.Font.Gotham
+			item.TextSize = 14
+			item.Text = plr.Name
+			Instance.new("UICorner", item).CornerRadius = UDim.new(0,6)
+			item.Parent = tpList
+
+			item.MouseButton1Click:Connect(function()
+				refreshCharacterRefs()
+				if root and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+					root.CFrame = CFrame.new(plr.Character.HumanoidRootPart.Position)
+				end
+			end)
+		end
+	end
+end
+
+-- setspawn
+-- ================= SPAWN MENU =================
+--========================================================
+-- SPAWN MENU (Create + List + Delete + Drag&Drop reorder)
+--========================================================
+
+local spawnPoints = {} -- array: { {name="Home", pos=Vector3.new(...)}, ... }
+
+-- Spawn menu frame
+local spawnFrame = Instance.new("Frame")
+spawnFrame.Name = "SpawnFrame"
+spawnFrame.Size = UDim2.new(0, 160, 0, 200)
+spawnFrame.Position = UDim2.new(1, 10, 0, 210) -- nằm dưới TP menu
+spawnFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+spawnFrame.BorderSizePixel = 0
+spawnFrame.Visible = false
+spawnFrame.Active = true
+Instance.new("UICorner", spawnFrame).CornerRadius = UDim.new(0,6)
+spawnFrame.Parent = Frame -- QUAN TRỌNG: parent vào Frame gốc của hub
+
+-- input box để nhập tên spawn (chừa chỗ cho nút + nhỏ)
+local nameBox = Instance.new("TextBox")
+nameBox.Size = UDim2.new(1, -36, 0, 28)         -- chừa chỗ bên phải
+nameBox.Position = UDim2.new(0, 4, 0, 4)
+nameBox.PlaceholderText = "Spawn name"
+nameBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
+nameBox.TextColor3 = Color3.new(1,1,1)
+nameBox.Font = Enum.Font.Gotham
+nameBox.TextSize = 14
+Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0,6)
+nameBox.Parent = spawnFrame
+
+-- nút tạo spawn nhỏ (+)
+local createBtn = Instance.new("TextButton")
+createBtn.Size = UDim2.new(0, 28, 0, 28)
+createBtn.Position = UDim2.new(1, -32, 0, 4)
+createBtn.BackgroundColor3 = Color3.fromRGB(80,150,250)
+createBtn.Text = "+"
+createBtn.TextColor3 = Color3.new(1,1,1)
+createBtn.Font = Enum.Font.GothamBold
+createBtn.TextSize = 18
+Instance.new("UICorner", createBtn).CornerRadius = UDim.new(0,6)
+createBtn.Parent = spawnFrame
+
+-- danh sách spawn
+local spawnList = Instance.new("ScrollingFrame")
+spawnList.Name = "SpawnList"
+spawnList.Size = UDim2.new(1, -8, 1, -44)
+spawnList.Position = UDim2.new(0, 4, 0, 40)
+spawnList.BackgroundTransparency = 1
+spawnList.ScrollBarThickness = 6
+spawnList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+spawnList.Parent = spawnFrame
+
+local spawnLayout = Instance.new("UIListLayout")
+spawnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+spawnLayout.Padding = UDim.new(0,4)
+spawnLayout.Parent = spawnList
+
+-- Drag & Drop control
+local draggingItem = nil
+local dragStartY = 0
+local itemStartY = 0
+
+-- hàm refresh spawn list
+local function refreshSpawnList()
+	for _, child in ipairs(spawnList:GetChildren()) do
+		if child:IsA("Frame") or child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+
+	for i, data in ipairs(spawnPoints) do
+		local name, pos = data.name, data.pos
+
+		-- khung cho từng spawn
+		local item = Instance.new("Frame")
+		item.Size = UDim2.new(1, -6, 0, 28)
+		item.BackgroundTransparency = 1
+		item.Parent = spawnList
+
+		-- nút xanh (teleport)
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(1, 0, 1, 0)
+		btn.BackgroundColor3 = Color3.fromRGB(100,200,100)
+		btn.TextColor3 = Color3.new(0,0,0)
+		btn.Font = Enum.Font.Gotham
+		btn.TextSize = 14
+		btn.Text = name
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+		btn.Parent = item
+
+		-- teleport click
+		btn.MouseButton1Click:Connect(function()
+			refreshCharacterRefs()
+			if root then
+				root.CFrame = CFrame.new(pos + Vector3.new(0,3,0))
+			end
+		end)
+
+		-- nút xoá nhỏ trong nút xanh
+		local delBtn = Instance.new("TextButton")
+		delBtn.Size = UDim2.new(0, 16, 0, 16)
+		delBtn.Position = UDim2.new(1, -20, 0.5, -8)
+		delBtn.BackgroundColor3 = Color3.fromRGB(200,80,80)
+		delBtn.Text = "×"
+		delBtn.TextColor3 = Color3.new(1,1,1)
+		delBtn.Font = Enum.Font.GothamBold
+		delBtn.TextSize = 12
+		Instance.new("UICorner", delBtn).CornerRadius = UDim.new(0,4)
+		delBtn.ZIndex = 2
+		delBtn.Parent = btn
+
+		delBtn.MouseButton1Click:Connect(function()
+			table.remove(spawnPoints, i)
+			refreshSpawnList()
+		end)
+
+		-- Drag & Drop
+		-- Drag & Drop
+		-- Drag & Drop reorder
+		local UserInputService = game:GetService("UserInputService")
+
+		btn.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				draggingItem = {index = i}
+				dragStartY = input.Position.Y
+			end
+		end)
+
+		btn.InputChanged:Connect(function(input)
+			if draggingItem and input.UserInputType == Enum.UserInputType.MouseMovement then
+				local relativeY = input.Position.Y - spawnList.AbsolutePosition.Y
+				local newIndex = math.clamp(math.floor(relativeY / 32 + 1), 1, #spawnPoints)
+
+				if newIndex ~= draggingItem.index then
+					local oldData = spawnPoints[draggingItem.index]
+					table.remove(spawnPoints, draggingItem.index)
+					table.insert(spawnPoints, newIndex, oldData)
+
+					draggingItem.index = newIndex
+					refreshSpawnList()
+				end
+			end
+		end)
+
+		-- bắt global để chắc chắn khi thả chuột thì dừng luôn
+		UserInputService.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				draggingItem = nil
+			end
+		end)
+	end
+end
+
+-- khi bấm nút Create
+createBtn.MouseButton1Click:Connect(function()
+	local name = nameBox.Text
+	refreshCharacterRefs()
+	if name ~= "" and root then
+		table.insert(spawnPoints, {name = name, pos = root.Position})
+		refreshSpawnList()
+		nameBox.Text = ""
+	end
+end)
+
+-- Button func
+local function makeButton(key, label, onClick, isToggle, defaultOn)
+	local btn = Instance.new("TextButton")
+	btn.Parent = List
+	btn:SetAttribute("BaseText", label)
+	btn.Text = isToggle and (label .. (defaultOn and " [ON]" or " [OFF]")) or label
+	btn.Size = UDim2.new(1, -12, 0, 26)
+	btn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+	btn.TextColor3 = Color3.fromRGB(255,255,255)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+
+	Buttons[key] = btn
+	setBtnStyle(btn, defaultOn or false)
+
+	btn.MouseButton1Click:Connect(function()
+		local ok, err = pcall(onClick)
+		if not ok then
+			warn("Button callback error for", key, err)
+		end
+	end)
+end
+
+-- Create core toggles
+makeButton("Fly", "Fly", toggleFly, true, false)
+makeButton("Noclip", "Noclip", toggleNoclip, true, false)
+makeButton("Invisible", "Invisible", function() toggleInvisibility(not invisible) end, true, false)
+makeButton("ESP", "ESP", toggleESP, true, false)
+makeButton("GodMode", "GodMode", function() godMode = not godMode; setBtnState("GodMode", godMode) end, true, false)
+makeButton("AntiAFK", "Anti AFK", function() setAntiAFK(not antiAfkEnabled) end, true, false)
+makeButton("NoFall", "No Fall", function() setNoFall(not noFallEnabled) end, true, false)
+makeButton("Jump", "Infinite Jump", function() setInfiniteJump(not infiniteJumpEnabled) end, true, false)
+makeButton("Speed", "Speed Boost", function()
+	speedBoost = not speedBoost
+	refreshCharacterRefs()
+	if humanoid then
+		pcall(function() humanoid.WalkSpeed = (speedBoost and BOOSTED_WALKSPEED) or NORMAL_WALKSPEED end)
+	end
+	setBtnState("Speed", speedBoost)
+end, true, false)
+
+-- Gán vào nút hub
+makeButton("FullBright", "Full Bright", function()
+	setFullBright(not fullBrightEnabled)
+	setBtnState("FullBright", fullBrightEnabled)
+end, true, false)
+
+makeButton("CloneCreate", "Create Clone (x0)", function()
+	createClone()
+end, false, false)
+
+makeButton("CloneDelete", "Delete Oldest Clone (none)", function()
+	deleteOldestClone()
+end, false, false)
+
+makeButton("TeleportMenu", "Teleport Menu", function()
+	tpFrame.Visible = not tpFrame.Visible
+	if tpFrame.Visible then
+		refreshTPList()
+	end
+end, false, false)
+Players.PlayerAdded:Connect(function()
+	if tpFrame.Visible then refreshTPList() end
+end)
+Players.PlayerRemoving:Connect(function()
+	if tpFrame.Visible then refreshTPList() end
+end)
+-- gán vào hub bằng makeButton
+makeButton("SpawnMenu", "Spawn Menu", function()
+	spawnFrame.Visible = not spawnFrame.Visible
+	if spawnFrame.Visible then
+		refreshSpawnList()
+	end
+end, false, false)
+
+
+makeButton("FlyFaster", "Fly Speed +", function() flySpeed = flySpeed + 10 end, false, false)
+makeButton("FlySlower", "Fly Speed -", function() flySpeed = flySpeed - 10 end, false, false)
+makeButton("JumpHigher", "Jump Power +", function()
+	refreshCharacterRefs()
+	if humanoid then
+		pcall(function()
+			humanoid.UseJumpPower = true
+			humanoid.JumpPower = humanoid.JumpPower + 10
+		end)
+	end
+end, false, false)
+makeButton("JumpLower", "Jump Power -", function()
+	refreshCharacterRefs()
+	if humanoid then
+		pcall(function()
+			humanoid.UseJumpPower = true
+			humanoid.JumpPower = humanoid.JumpPower - 10
+		end)
+	end
+end, false, false)
+makeButton("WalkFaster", "Walk Speed +", function()
+	refreshCharacterRefs()
+	if humanoid then pcall(function() humanoid.WalkSpeed = humanoid.WalkSpeed + 10 end) end
+end, false, false)
+makeButton("WalkSlower", "Walk Speed -", function()
+	refreshCharacterRefs()
+	if humanoid then pcall(function() humanoid.WalkSpeed = humanoid.WalkSpeed - 10 end) end
+end, false, false)
+
+-- Ctrl to toggle hub visibility
+local hubVisible = true
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
+		hubVisible = not hubVisible
+		Frame.Visible = hubVisible -- chỉ ẩn/hiện GUI, script vẫn chạy
+	end
+end)
