@@ -161,7 +161,7 @@ local function createTab(tabName, features, posX)
 	List.Position = UDim2.new(0,0,0,25)
 	List.BackgroundTransparency = 1
 	List.BorderSizePixel = 0
-	List.ScrollBarThickness = 6
+	List.ScrollBarThickness = 0
 	List.ScrollBarImageTransparency = 1
 	List.Parent = Tab
 	List.ZIndex = Title.ZIndex + 1
@@ -171,6 +171,11 @@ local function createTab(tabName, features, posX)
 	Layout.Parent = List
 	Layout.SortOrder = Enum.SortOrder.LayoutOrder
 	Layout.Padding = UDim.new(0,2)
+	
+	local padding = Instance.new("UIPadding")
+	padding.Parent = List
+	padding.PaddingLeft = UDim.new(0, 1)   -- thụt trái 1px
+	padding.PaddingRight = UDim.new(0, 1)  -- thụt phải 1px
 
 	Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 		List.CanvasSize = UDim2.new(0,0,0, Layout.AbsoluteContentSize.Y + 6)
@@ -178,8 +183,8 @@ local function createTab(tabName, features, posX)
 
 	for _, fname in ipairs(features) do
 		local Btn = Instance.new("TextButton")
-		Btn.Size = UDim2.new(1, -4, 0, 28)
-		Btn.Position = UDim2.new(0,2,0,0)
+		Btn.Size = UDim2.new(1, 0, 0, 28)
+		Btn.Position = UDim2.new(0, 1, 0, 0)
 		Btn.Text = fname
 		Btn.BackgroundColor3 = Color3.fromRGB(20,20,20)
 		Btn.BackgroundTransparency = 0.2
