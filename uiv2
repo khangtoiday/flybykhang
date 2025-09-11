@@ -1,0 +1,307 @@
+-- LocalScript (đặt trong StarterPlayerScripts)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local CoreGui = game:GetService("CoreGui")
+
+-- ScreenGui
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Khangdeptrai"
+ScreenGui.Parent = playerGui
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 999999999  -- cực cao để luôn ở trên ESC menu
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+--ScreenGui.Modal = true -- bỏ comment nếu muốn GUI "ăn" hết input
+
+-- ZIndex behavior cho chắc
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- state
+local ZCounter = 1
+local FeatureButtons = {}      -- map: name -> array of buttons
+
+local function setBtnState(name, state)
+	local list = FeatureButtons[name]
+	if list then
+		for _, btn in ipairs(list) do
+			if state then
+				btn.BackgroundColor3 = Color3.fromRGB(0,170,0)
+			else
+				btn.BackgroundColor3 = Color3.fromRGB(20,20,20)
+			end
+		end
+	end
+end
+
+-- ====== FLY ======
+local character, humanoid, root
+local flying = false
+local flySpeed = 50
+local bodyVel, bodyGyro, conFly
+
+local function refreshCharacterRefs()
+	character = player.Character
+	if character then
+		humanoid = character:FindFirstChildOfClass("Humanoid")
+		root = character:FindFirstChild("HumanoidRootPart")
+	else
+		humanoid = nil
+		root = nil
+	end
+end
+
+local function toggleFly()
+	refreshCharacterRefs()
+	if not root then
+		flying = false
+		setBtnState("Fly", flying)
+		return
+	end
+
+	flying = not flying
+	if flying then
+		bodyVel = Instance.new("BodyVelocity")
+		bodyVel.MaxForce = Vector3.new(1e5,1e5,1e5)
+		bodyVel.Velocity = Vector3.new(0,0,0)
+		bodyVel.Parent = root
+
+		bodyGyro = Instance.new("BodyGyro")
+		bodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
+		bodyGyro.P = 1e4
+		bodyGyro.CFrame = root.CFrame
+		bodyGyro.Parent = root
+
+		conFly = RunService.RenderStepped:Connect(function()
+			refreshCharacterRefs()
+			if not root or not workspace.CurrentCamera then return end
+			local camCF = workspace.CurrentCamera.CFrame
+			local move = Vector3.new(0,0,0)
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + camCF.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - camCF.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - camCF.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + camCF.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + camCF.UpVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move = move - camCF.UpVector end
+
+			if move.Magnitude > 0 then
+				bodyVel.Velocity = move.Unit * flySpeed
+			else
+				bodyVel.Velocity = Vector3.new(0,0,0)
+			end
+			bodyGyro.CFrame = camCF
+		end)
+	else
+		if conFly then conFly:Disconnect() conFly = nil end
+		if bodyVel then bodyVel:Destroy() bodyVel = nil end
+		if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+	end
+	setBtnState("Fly", flying)
+end
+
+-- Map tên -> function
+local FeatureFunctions = {
+	["Fly"] = toggleFly,
+	-- ["ESP"] = toggleESP, ...
+}
+
+-- Hàm tạo tab
+local function createTab(tabName, features, posX)
+	local btnHeight = 28
+	local padding = 2
+	local titleHeight = 25
+	local featureCount = #features
+
+	-- Chiều cao đầy đủ (vừa đủ chứa tất cả nút)
+	local fullHeight = titleHeight + (featureCount * (btnHeight + padding)) + 6
+
+	local baseHeight = 150
+	local growthPerBtn = 10   -- tăng rõ ràng hơn
+	local maxHeight = 500
+
+	local tabHeight
+	if featureCount <= 5 then
+		-- ít nút thì dài đủ hết
+		tabHeight = fullHeight
+	else
+		-- nhiều nút thì chỉ tăng tương đối
+		tabHeight = math.min(baseHeight + (featureCount * growthPerBtn), maxHeight)
+	end
+	local Tab = Instance.new("Frame")
+	Tab.Size = UDim2.new(0,150,0,tabHeight)
+	Tab.Position = UDim2.new(0,posX,0,100)
+	Tab.BackgroundColor3 = Color3.fromRGB(0,0,0)
+	Tab.BackgroundTransparency = 0.2
+	Tab.BorderSizePixel = 0
+	Tab.Active = true
+	Tab.ZIndex = ZCounter
+	Tab.Parent = ScreenGui
+
+
+	local Title = Instance.new("TextButton")
+	Title.Size = UDim2.new(1,0,0,25)
+	Title.Position = UDim2.new(0,0,0,0)
+	Title.BackgroundColor3 = Color3.fromRGB(30,30,30)
+	Title.BackgroundTransparency = 0.1
+	Title.Text = tabName
+	Title.TextColor3 = Color3.fromRGB(255,255,255)
+	Title.Font = Enum.Font.SourceSansBold
+	Title.TextSize = 18
+	Title.Parent = Tab
+	Title.ZIndex = Tab.ZIndex + 1
+	Title.AutoButtonColor = false
+
+	local List = Instance.new("ScrollingFrame")
+	List.Size = UDim2.new(1,0,1,-25)
+	List.Position = UDim2.new(0,0,0,25)
+	List.BackgroundTransparency = 1
+	List.BorderSizePixel = 0
+	List.ScrollBarThickness = 6
+	List.ScrollBarImageTransparency = 1
+	List.Parent = Tab
+	List.ZIndex = Title.ZIndex + 1
+	List.CanvasSize = UDim2.new(0,0,0,0)
+
+	local Layout = Instance.new("UIListLayout")
+	Layout.Parent = List
+	Layout.SortOrder = Enum.SortOrder.LayoutOrder
+	Layout.Padding = UDim.new(0,2)
+
+	Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		List.CanvasSize = UDim2.new(0,0,0, Layout.AbsoluteContentSize.Y + 6)
+	end)
+
+	for _, fname in ipairs(features) do
+		local Btn = Instance.new("TextButton")
+		Btn.Size = UDim2.new(1, -4, 0, 28)
+		Btn.Position = UDim2.new(0,2,0,0)
+		Btn.Text = fname
+		Btn.BackgroundColor3 = Color3.fromRGB(20,20,20)
+		Btn.BackgroundTransparency = 0.2
+		Btn.TextColor3 = Color3.fromRGB(255,255,255)
+		Btn.Font = Enum.Font.SourceSans
+		Btn.TextSize = 16
+		Btn.Parent = List
+		Btn.ZIndex = List.ZIndex + 1
+
+		-- store button (support multiple same-name buttons)
+		FeatureButtons[fname] = FeatureButtons[fname] or {}
+		table.insert(FeatureButtons[fname], Btn)
+
+		Btn.MouseButton1Click:Connect(function()
+			local func = FeatureFunctions[fname]
+			if func then
+				-- pcall để lỗi trong func ko crash GUI
+				local ok, err = pcall(func)
+				if not ok then
+					warn("Feature error:", fname, err)
+				end
+			else
+				print("Clicked: "..fname.." (chưa gắn function)")
+			end
+		end)
+	end
+
+	-- kéo mượt bằng tiêu đề
+	local UIS = UserInputService
+	local dragging, dragInput, dragStart, startPos
+	Title.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			dragStart = input.Position
+			startPos = Tab.Position
+
+			-- đưa tab này lên top cuối cùng
+			Tab.Parent = nil
+			Tab.Parent = ScreenGui
+
+			ZCounter = ZCounter + 1
+			Tab.ZIndex = ZCounter
+			Title.ZIndex = ZCounter + 1
+			List.ZIndex = ZCounter + 2
+			for _, child in ipairs(List:GetChildren()) do
+				if child:IsA("GuiObject") then
+					child.ZIndex = ZCounter + 3
+				end
+			end
+		end
+	end)
+
+	Title.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			dragInput = input
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			local delta = input.Position - dragStart
+			local goal = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			)
+			TweenService:Create(Tab, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = goal}):Play()
+		end
+	end)
+
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = false
+		end
+	end)
+
+	-- thu gọn / mở rộng trên click (không phải drag)
+	local expanded = true
+	local clickThreshold = 6
+	local dragMoved = false
+
+	Title.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragMoved = false
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if dragging and input == dragInput then
+			local delta = input.Position - dragStart
+			if math.abs(delta.X) > clickThreshold or math.abs(delta.Y) > clickThreshold then
+				dragMoved = true
+			end
+		end
+	end)
+
+	Title.MouseButton1Up:Connect(function()
+		if not dragMoved then
+			if expanded then
+				List.Visible = false
+				Tab:TweenSize(UDim2.new(0,150,0,25), "Out", "Quad", 0.12, true)
+				expanded = false
+			else
+				List.Visible = true
+				Tab:TweenSize(UDim2.new(0,150,0,tabHeight), "Out", "Quad", 0.12, true)
+				expanded = true
+			end
+		end
+	end)
+end
+
+-- Thứ tự tab cố định
+local TabOrder = {
+	{"Combat", {"Trigger Bot", "Silent Aim", "Aimbot", "Kill Aura", "Fast Attack", "Fly", "Speed Walk", "Jump Power", "Noclip", "Infinite Jump", "Speed Walk", "Jump Power", "Noclip", "Infinite Jump"}},
+	{"Movement", {"Fly", "Speed Walk", "Jump Power", "Noclip", "Infinite Jump", "Speed Walk", "Speed Walk"}},
+	{"Player", {"Invisible", "Fake Death", "Fake Lag", "Auto Respawn", "Auto Chat", "Speed Walk"}},
+	{"World", {"Anti Knockback", "Anti Hurt", "No Stun", "Fast Flag"}},
+	{"Render", {"ESP", "ESP Enemy", "Highlight Blocks", "Full Bright", "Remove Fog", "Speed Walk", "Speed Walk", "Speed Walk", "Speed Walk"}},
+	{"setting", {"ESP", "ESP Enemy", "Highlight Blocks", "Full Bright", "Remove Fog", "Speed Walk", "Speed Walk"}},
+}
+
+local x = 50
+for _, info in ipairs(TabOrder) do
+	createTab(info[1], info[2], x)
+	x = x + 170
+end
