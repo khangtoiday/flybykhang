@@ -1,0 +1,174 @@
+--!strict
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Config
+local BoxThickness = 2
+
+local ESPObjects = {}
+
+-- Visibility check
+local function IsVisible(hrp)
+    local origin = Camera.CFrame.Position
+    local direction = hrp.Position - origin
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {LocalPlayer.Character, hrp.Parent}
+
+    local result = workspace:Raycast(origin, direction, params)
+    return result == nil
+end
+
+-- Aim check
+local function IsAimedAt(part)
+    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return false end
+    local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    return (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude < 20
+end
+
+-- Enemy check: chỉ khác team mới là địch
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    local myTeam = LocalPlayer.Team
+    local otherTeam = player.Team
+    if not myTeam or not otherTeam then
+        return true -- game không có team -> tất cả đều là địch
+    end
+    return myTeam ~= otherTeam
+end
+
+-- Tạo ESP
+local function CreateESP(player)
+    local esp = {}
+
+    esp.Box = {}
+    for i = 1,4 do
+        local l = Drawing.new("Line")
+        l.Thickness = BoxThickness
+        l.Visible = false
+        esp.Box[i] = l
+    end
+
+    esp.Tracer = Drawing.new("Line")
+    esp.Tracer.Thickness = 1
+    esp.Tracer.Visible = false
+
+    esp.Text = Drawing.new("Text")
+    esp.Text.Size = 16
+    esp.Text.Center = true
+    esp.Text.Outline = true
+    esp.Text.Visible = false
+
+    ESPObjects[player] = esp
+end
+
+-- Remove ESP
+local function RemoveESP(player)
+    local esp = ESPObjects[player]
+    if not esp then return end
+    for _,l in ipairs(esp.Box) do l:Remove() end
+    esp.Tracer:Remove()
+    esp.Text:Remove()
+    ESPObjects[player] = nil
+end
+
+-- Track player
+local function TrackPlayer(player)
+    if player == LocalPlayer then return end
+
+    player.CharacterAdded:Connect(function(char)
+        task.wait(0.2)
+        CreateESP(player)
+    end)
+    player.CharacterRemoving:Connect(function()
+        RemoveESP(player)
+    end)
+    if player.Character then
+        task.wait(0.2)
+        CreateESP(player)
+    end
+end
+
+for _,p in ipairs(Players:GetPlayers()) do TrackPlayer(p) end
+Players.PlayerAdded:Connect(TrackPlayer)
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- Main loop
+RunService.RenderStepped:Connect(function()
+    local viewport = Camera.ViewportSize
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+    local myPos = myHRP.Position
+
+    for player, esp in pairs(ESPObjects) do
+        if not IsEnemy(player) then
+            for _,l in ipairs(esp.Box) do l.Visible = false end
+            esp.Tracer.Visible = false
+            esp.Text.Visible = false
+            continue
+        end
+
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Head") then
+            local hrp = char.HumanoidRootPart
+            local head = char.Head
+
+            local headPos, headOn = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.6,0))
+            local footPos, footOn = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,3.2,0))
+            local onScreen = headOn or footOn
+
+            if not onScreen then
+                for _,l in ipairs(esp.Box) do l.Visible = false end
+                esp.Tracer.Visible = false
+                esp.Text.Visible = false
+                continue
+            end
+
+            local visible = IsVisible(hrp)
+            local color = visible and Color3.fromRGB(255,0,0) or Color3.fromRGB(255,255,0)
+            if visible and IsAimedAt(hrp) then
+                color = Color3.fromRGB(255,80,255)
+            end
+
+            -- Tính size box
+            local top = Vector2.new(headPos.X, headPos.Y)
+            local bottom = Vector2.new(footPos.X, footPos.Y)
+            local height = (bottom.Y - top.Y) * 1.2
+            local width = height * 0.55
+
+            local left = top.X - width/2
+            local right = top.X + width/2
+
+            local c1 = Vector2.new(left, top.Y)
+            local c2 = Vector2.new(right, top.Y)
+            local c3 = Vector2.new(left, bottom.Y)
+            local c4 = Vector2.new(right, bottom.Y)
+
+            -- Box
+            esp.Box[1].From = c1; esp.Box[1].To = c2
+            esp.Box[2].From = c2; esp.Box[2].To = c4
+            esp.Box[3].From = c4; esp.Box[3].To = c3
+            esp.Box[4].From = c3; esp.Box[4].To = c1
+            for _,l in ipairs(esp.Box) do l.Color = color; l.Visible = true end
+
+            -- Tracer
+            esp.Tracer.From = Vector2.new(viewport.X/2, viewport.Y)
+            esp.Tracer.To = (c1 + c4)/2
+            esp.Tracer.Color = color
+            esp.Tracer.Visible = true
+
+            -- Distance
+            local dist = math.floor((myPos - hrp.Position).Magnitude)
+            esp.Text.Position = Vector2.new((c1.X+c2.X)/2, top.Y - 20)
+            esp.Text.Text = dist.." studs"
+            esp.Text.Color = color
+            esp.Text.Visible = true
+        end
+    end
+end)
